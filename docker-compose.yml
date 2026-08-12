@@ -1,4 +1,32 @@
 services:
+  # ===== Go API =====
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pelvic-api
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - ENVIRONMENT=production
+      - GIN_MODE=release
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+    networks:
+      - pelvic-net
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   # ===== PostgreSQL =====
   postgres:
     image: postgres:16-alpine
@@ -42,7 +70,7 @@ services:
         limits:
           memory: 256M
 
-  # ===== Adminer (Web UI для PostgreSQL) =====
+  # ===== Adminer =====
   adminer:
     image: adminer:latest
     container_name: pelvic-adminer
