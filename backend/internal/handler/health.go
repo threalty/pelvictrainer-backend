@@ -1,23 +1,27 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var dbPool *pgxpool.Pool
+
+// SetDBPool устанавливает пул подключений к БД
+func SetDBPool(pool *pgxpool.Pool) {
+	dbPool = pool
+}
 
 // SetupRouter создаёт и настраивает роутер Gin
 func SetupRouter() *gin.Engine {
-	// В production режиме отключаем debug логи
-	if gin.Mode() == gin.ReleaseMode {
-		gin.SetMode(gin.ReleaseMode)
-	}
-
 	router := gin.Default()
 
-	// CORS middleware (разрешаем запросы с admin.pelvictrainer.ru)
+	// CORS middleware
 	router.Use(corsMiddleware())
 
 	// Health check эндпоинты
@@ -28,6 +32,11 @@ func SetupRouter() *gin.Engine {
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/ping", pingHandler)
+
+		// Пользователи (будем использовать в админке)
+		userHandler := NewUserHandler(dbPool)
+		v1.GET("/users", userHandler.GetUsers)
+		v1.POST("/users", userHandler.CreateUser)
 	}
 
 	return router
@@ -45,11 +54,30 @@ func healthCheck(c *gin.Context) {
 
 // readinessCheck - проверка что сервер готов принимать запросы
 func readinessCheck(c *gin.Context) {
-	// TODO: добавить проверку подключения к БД и Redis
+	if dbPool == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "not_ready",
+			"error":  "БД не подключена",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	defer cancel()
+
+	if err := dbPool.Ping(ctx); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "not_ready",
+			"error":  "БД недоступна",
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"status":    "ready",
-		"service":   "pelvictrainer-api",
+		"status":     "ready",
+		"service":    "pelvictrainer-api",
 		"go_version": runtime.Version(),
+		"db_status":  "connected",
 	})
 }
 
@@ -66,12 +94,12 @@ func corsMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
-		
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
-		
+
 		c.Next()
 	}
 }
