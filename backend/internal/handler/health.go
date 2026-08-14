@@ -8,6 +8,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"pelvictrainer/backend/internal/auth"
+	"pelvictrainer/backend/internal/middleware"
 )
 
 var dbPool *pgxpool.Pool
@@ -18,7 +21,7 @@ func SetDBPool(pool *pgxpool.Pool) {
 }
 
 // SetupRouter создаёт и настраивает роутер Gin
-func SetupRouter() *gin.Engine {
+func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Engine {
 	router := gin.Default()
 
 	// CORS middleware
@@ -33,10 +36,24 @@ func SetupRouter() *gin.Engine {
 	{
 		v1.GET("/ping", pingHandler)
 
-		// Пользователи (будем использовать в админке)
-		userHandler := NewUserHandler(dbPool)
-		v1.GET("/users", userHandler.GetUsers)
-		v1.POST("/users", userHandler.CreateUser)
+		// Аутентификация (публичные endpoints)
+		authGroup := v1.Group("/auth")
+		{
+			authGroup.POST("/register", authHandler.Register)
+			authGroup.POST("/login", authHandler.Login)
+			authGroup.POST("/refresh", authHandler.RefreshToken)
+			authGroup.POST("/logout", authHandler.Logout)
+		}
+
+		// Защищённые endpoints (требуют JWT токен)
+		protected := v1.Group("/")
+		protected.Use(middleware.AuthMiddleware(jwtService))
+		{
+			// Пользователи
+			userHandler := NewUserHandler(dbPool)
+			protected.GET("/users", userHandler.GetUsers)
+			protected.POST("/users", userHandler.CreateUser)
+		}
 	}
 
 	return router
