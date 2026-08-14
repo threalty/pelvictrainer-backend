@@ -1,7 +1,9 @@
-# Stage 1: Сборка
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
+
+# ВАЖНО: убираем GOTOOLCHAIN=local — теперь он не нужен
+# Go 1.25 поддерживает все свежие пакеты
 
 # Копируем go.mod и go.sum
 COPY go.mod go.sum ./
@@ -13,23 +15,18 @@ RUN go mod download
 COPY . .
 
 # Собираем бинарник
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o main ./cmd/api
 
-# Stage 2: Финальный образ (минимальный)
+# Stage 2: Финальный образ
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /root/
 
-# Копируем бинарник из builder
 COPY --from=builder /app/main .
+COPY --from=builder /app/.env .
 
-# Копируем .env если нужен
-COPY .env .env
-
-# Открываем порт
 EXPOSE 8080
 
-# Запускаем приложение
 CMD ["./main"]
