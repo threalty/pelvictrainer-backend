@@ -23,20 +23,16 @@ func SetDBPool(pool *pgxpool.Pool) {
 // SetupRouter создаёт и настраивает роутер Gin
 func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Engine {
 	router := gin.Default()
-
-	// CORS middleware
 	router.Use(corsMiddleware())
 
-	// Health check эндпоинты
 	router.GET("/health", healthCheck)
 	router.GET("/ready", readinessCheck)
 
-	// API версии
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/ping", pingHandler)
 
-		// Аутентификация (публичные endpoints)
+		// Аутентификация (публичные)
 		authGroup := v1.Group("/auth")
 		{
 			authGroup.POST("/register", authHandler.Register)
@@ -45,7 +41,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			authGroup.POST("/logout", authHandler.Logout)
 		}
 
-		// Защищённые endpoints (требуют JWT токен)
+		// Защищённые endpoints
 		protected := v1.Group("/")
 		protected.Use(middleware.AuthMiddleware(jwtService))
 		{
@@ -53,6 +49,13 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			userHandler := NewUserHandler(dbPool)
 			protected.GET("/users", userHandler.GetUsers)
 			protected.POST("/users", userHandler.CreateUser)
+
+			// Подписки (новое!)
+			subHandler := NewSubscriptionHandler(dbPool)
+			protected.GET("/subscriptions", subHandler.GetSubscriptions)
+			protected.GET("/users/:user_id/subscription", subHandler.GetUserSubscription)
+			protected.POST("/users/:user_id/subscription", subHandler.ActivateSubscription)
+			protected.DELETE("/subscriptions/:id", subHandler.CancelSubscription)
 		}
 	}
 

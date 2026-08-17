@@ -1,3 +1,5 @@
 .env
 backups/
 *.log
+.env
+backend/.env
