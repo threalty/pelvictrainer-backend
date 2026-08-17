@@ -14,10 +14,25 @@ export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key"
 cd /opt/pelvictrainer
 
 # 0. Освобождаем порт 8081 если занят локальным процессом
-if sudo ss -tlnp 2>/dev/null | grep -q ":8081"; then
+echo "🔍 Проверка порта 8081..."
+if ss -tlnp 2>/dev/null | grep -q ":8081"; then
     echo "⚠️ Порт 8081 занят, освобождаем..."
+    # Способ 1: fuser
     sudo fuser -k 8081/tcp 2>/dev/null || true
-    sleep 1
+    # Способ 2: pkill по имени процесса (для Go)
+    sudo pkill -9 -f "/tmp/go-build.*/main" 2>/dev/null || true
+    sudo pkill -9 -f "go run cmd/api" 2>/dev/null || true
+    sleep 2
+    
+    # Проверяем что освободился
+    if ss -tlnp 2>/dev/null | grep -q ":8081"; then
+        echo "❌ Не удалось освободить порт 8081"
+        ss -tlnp | grep ":8081"
+        exit 1
+    fi
+    echo "✅ Порт 8081 освобождён"
+else
+    echo "✅ Порт 8081 свободен"
 fi
 
 # 1. Обновляем код
