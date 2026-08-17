@@ -7,6 +7,7 @@ import {
   type User,
   type Subscription,
 } from '../lib/api';
+import UserDetailModal from '../components/UserDetailModal';
 
 interface Props {
   token: string;
@@ -18,8 +19,8 @@ export default function Dashboard({ token, onLogout }: Props) {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
-  // Модалка
   const [modalUser, setModalUser] = useState<User | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly' | 'lifetime'>('monthly');
   const [submitting, setSubmitting] = useState(false);
@@ -49,7 +50,6 @@ export default function Dashboard({ token, onLogout }: Props) {
     loadData();
   }, [token]);
 
-  // Мапа user_id -> активная подписка
   const activeSubMap = new Map<number, Subscription>();
   subscriptions.forEach((s) => {
     if (s.status === 'active') {
@@ -128,7 +128,6 @@ export default function Dashboard({ token, onLogout }: Props) {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Статистика */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
             <div className="text-gray-400 text-sm mb-1">👥 Всего пользователей</div>
@@ -144,7 +143,6 @@ export default function Dashboard({ token, onLogout }: Props) {
           </div>
         </div>
 
-        {/* Таблица пользователей */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-white">Пользователи</h2>
@@ -179,7 +177,11 @@ export default function Dashboard({ token, onLogout }: Props) {
                   {users.map((user) => {
                     const sub = activeSubMap.get(user.id);
                     return (
-                      <tr key={user.id} className="hover:bg-gray-800/30 transition-colors">
+                      <tr
+                        key={user.id}
+                        className="hover:bg-gray-800/30 transition-colors cursor-pointer"
+                        onClick={() => setSelectedUser(user)}
+                      >
                         <td className="px-6 py-4 text-sm text-gray-500">#{user.id}</td>
                         <td className="px-6 py-4 text-sm font-medium text-white">{user.name}</td>
                         <td className="px-6 py-4 text-sm text-gray-400">{user.email}</td>
@@ -203,14 +205,20 @@ export default function Dashboard({ token, onLogout }: Props) {
                         <td className="px-6 py-4 text-sm text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => setModalUser(user)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setModalUser(user);
+                              }}
                               className="text-xs text-bordeaux-400 hover:text-bordeaux-300 transition-colors"
                             >
                               {sub ? 'Изменить' : '+ Подписка'}
                             </button>
                             {sub && (
                               <button
-                                onClick={() => handleCancel(sub.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCancel(sub.id);
+                                }}
                                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
                               >
                                 Отменить
@@ -228,6 +236,15 @@ export default function Dashboard({ token, onLogout }: Props) {
         </div>
       </main>
 
+      {/* Модалка деталей пользователя */}
+      {selectedUser && (
+        <UserDetailModal
+          token={token}
+          user={selectedUser}
+          onClose={() => setSelectedUser(null)}
+        />
+      )}
+
       {/* Модалка активации подписки */}
       {modalUser && (
         <div
@@ -238,9 +255,7 @@ export default function Dashboard({ token, onLogout }: Props) {
             className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-md w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-xl font-bold text-white mb-2">
-              Активировать подписку
-            </h2>
+            <h2 className="text-xl font-bold text-white mb-2">Активировать подписку</h2>
             <p className="text-gray-400 text-sm mb-6">
               для <span className="text-white font-medium">{modalUser.name}</span> ({modalUser.email})
             </p>
