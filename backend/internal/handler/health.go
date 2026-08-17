@@ -65,6 +65,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			protected.GET("/analytics/overview", analyticsHandler.Overview)
 			protected.GET("/analytics/registrations", analyticsHandler.RegistrationsByDay)
 			protected.GET("/analytics/subscriptions", analyticsHandler.SubscriptionBreakdown)
+			protected.GET("/analytics/cohorts", analyticsHandler.CohortAnalysis)
 
 			// Мобильное приложение (protected + rate limit)
 			mobileHandler := NewMobileHandler(dbPool)

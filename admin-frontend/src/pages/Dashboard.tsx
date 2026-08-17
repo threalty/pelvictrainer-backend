@@ -12,6 +12,7 @@ import {
 import UserDetailModal from '../components/UserDetailModal';
 import RegistrationsChart from '../components/RegistrationsChart';
 import SubscriptionsChart from '../components/SubscriptionsChart';
+import CohortHeatmap from '../components/CohortHeatmap';
 
 interface Props {
   token: string;
@@ -170,7 +171,12 @@ export default function Dashboard({ token, onLogout }: Props) {
             <RegistrationsChart token={token} days={30} />
           </div>
           <SubscriptionsChart token={token} />
-        </div>
+        </div>   
+
+        {/* Когортный анализ */}
+        <div className="mb-8">
+          <CohortHeatmap token={token} />
+        </div>              
 
         {/* Таблица пользователей */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">

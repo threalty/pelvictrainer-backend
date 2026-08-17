@@ -131,3 +131,34 @@ export async function getSubscriptionBreakdown(token: string): Promise<Subscript
   if (!res.ok) throw new Error('Ошибка загрузки');
   return res.json();
 }
+
+// ===== COHORT ANALYSIS =====
+
+export interface CohortWeek {
+  week: number;
+  active: number;
+  percent: number;
+}
+
+export interface CohortData {
+  cohort_week: string;
+  cohort_size: number;
+  weeks: CohortWeek[];
+}
+
+export interface Retention {
+  d1: number;
+  d7: number;
+  d30: number;
+}
+
+export interface CohortAnalysis {
+  cohorts: CohortData[];
+  retention: Retention;
+}
+
+export async function getCohortAnalysis(token: string): Promise<CohortAnalysis> {
+  const res = await authFetch(`${API_URL}/api/v1/analytics/cohorts`, token);
+  if (!res.ok) throw new Error('Ошибка загрузки когорт');
+  return res.json();
+}
