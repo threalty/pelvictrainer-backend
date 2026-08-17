@@ -34,6 +34,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 
 		// Аутентификация (публичные)
 		authGroup := v1.Group("/auth")
+		authGroup.Use(middleware.RateLimitMiddleware(20, time.Minute)) // защита от брутфорса
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
@@ -64,6 +65,21 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			protected.GET("/analytics/overview", analyticsHandler.Overview)
 			protected.GET("/analytics/registrations", analyticsHandler.RegistrationsByDay)
 			protected.GET("/analytics/subscriptions", analyticsHandler.SubscriptionBreakdown)
+
+			// Мобильное приложение (protected + rate limit)
+			mobileHandler := NewMobileHandler(dbPool)
+			mobile := v1.Group("/")
+			mobile.Use(middleware.AuthMiddleware(jwtService))
+			mobile.Use(middleware.RateLimitMiddleware(120, time.Minute))
+			{
+				mobile.GET("/presets", mobileHandler.GetPresets)
+				mobile.POST("/sessions", mobileHandler.LogSession)
+				mobile.GET("/me/sessions", mobileHandler.GetMySessions)
+				mobile.GET("/me/stats", mobileHandler.GetMyStats)
+				mobile.GET("/me/subscription", mobileHandler.GetMySubscription)
+				mobile.POST("/devices", mobileHandler.RegisterDevice)
+				mobile.DELETE("/devices", mobileHandler.UnregisterDevice)
+			}
 			
 		}
 	}
