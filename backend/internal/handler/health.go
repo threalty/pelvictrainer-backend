@@ -48,13 +48,15 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			// Пользователи
 			userHandler := NewUserHandler(dbPool)
 			protected.GET("/users", userHandler.GetUsers)
+			protected.GET("/users/:id", userHandler.GetUserDetail)           // Новое!
+			protected.GET("/users/:id/sessions", userHandler.GetUserSessions) // Новое!
 			protected.POST("/users", userHandler.CreateUser)
 
 			// Подписки (новое!)
 			subHandler := NewSubscriptionHandler(dbPool)
 			protected.GET("/subscriptions", subHandler.GetSubscriptions)
-			protected.GET("/users/:user_id/subscription", subHandler.GetUserSubscription)
-			protected.POST("/users/:user_id/subscription", subHandler.ActivateSubscription)
+			protected.GET("/users/:id/subscription", subHandler.GetUserSubscription)
+			protected.POST("/users/:id/subscription", subHandler.ActivateSubscription)
 			protected.DELETE("/subscriptions/:id", subHandler.CancelSubscription)
 		}
 	}

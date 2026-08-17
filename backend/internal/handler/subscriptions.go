@@ -76,7 +76,7 @@ func (h *SubscriptionHandler) GetSubscriptions(c *gin.Context) {
 
 // ActivateSubscription активирует подписку для пользователя
 func (h *SubscriptionHandler) ActivateSubscription(c *gin.Context) {
-	userIDStr := c.Param("user_id")
+	userIDStr := c.Param("id")
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный user_id"})
@@ -151,7 +151,7 @@ func (h *SubscriptionHandler) ActivateSubscription(c *gin.Context) {
 
 // GetUserSubscription возвращает активную подписку конкретного пользователя
 func (h *SubscriptionHandler) GetUserSubscription(c *gin.Context) {
-	userIDStr := c.Param("user_id")
+	userIDStr := c.Param("id")
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный user_id"})
