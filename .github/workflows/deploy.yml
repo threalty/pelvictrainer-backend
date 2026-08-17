@@ -1,0 +1,22 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: ⏳ Ждём 5 сек после push (чтобы код доехал)
+        run: sleep 5
+
+      - name: 🚀 Деплой на сервер по SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: deploy
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: /opt/pelvictrainer/deploy.sh
