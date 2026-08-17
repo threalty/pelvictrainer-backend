@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import {
   getUsers,
   getSubscriptions,
+  getOverview,
   activateSubscription,
   cancelSubscription,
   type User,
   type Subscription,
+  type Overview,
 } from '../lib/api';
 import UserDetailModal from '../components/UserDetailModal';
+import RegistrationsChart from '../components/RegistrationsChart';
+import SubscriptionsChart from '../components/SubscriptionsChart';
 
 interface Props {
   token: string;
@@ -17,6 +21,7 @@ interface Props {
 export default function Dashboard({ token, onLogout }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -29,12 +34,14 @@ export default function Dashboard({ token, onLogout }: Props) {
     setLoading(true);
     setError('');
     try {
-      const [usersData, subsData] = await Promise.all([
+      const [usersData, subsData, overviewData] = await Promise.all([
         getUsers(token),
         getSubscriptions(token),
+        getOverview(token),
       ]);
       setUsers(usersData);
       setSubscriptions(subsData);
+      setOverview(overviewData);
     } catch (err) {
       if (err instanceof Error && err.message === 'UNAUTHORIZED') {
         onLogout();
@@ -52,16 +59,8 @@ export default function Dashboard({ token, onLogout }: Props) {
 
   const activeSubMap = new Map<number, Subscription>();
   subscriptions.forEach((s) => {
-    if (s.status === 'active') {
-      activeSubMap.set(s.user_id, s);
-    }
+    if (s.status === 'active') activeSubMap.set(s.user_id, s);
   });
-
-  const newThisWeek = users.filter(
-    (u) => new Date(u.created_at).getTime() > Date.now() - 7 * 24 * 3600 * 1000
-  ).length;
-
-  const activeSubsCount = subscriptions.filter((s) => s.status === 'active').length;
 
   const handleActivate = async () => {
     if (!modalUser) return;
@@ -118,6 +117,13 @@ export default function Dashboard({ token, onLogout }: Props) {
               ● API онлайн
             </span>
             <button
+              onClick={loadData}
+              disabled={loading}
+              className="text-sm text-bordeaux-400 hover:text-bordeaux-300 disabled:opacity-50 transition-colors"
+            >
+              ⟳ Обновить
+            </button>
+            <button
               onClick={onLogout}
               className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-2 transition-colors"
             >
@@ -128,30 +134,48 @@ export default function Dashboard({ token, onLogout }: Props) {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <div className="text-gray-400 text-sm mb-1">👥 Всего пользователей</div>
-            <div className="text-3xl font-bold text-white">{users.length}</div>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <div className="text-gray-400 text-sm mb-1">🆕 Новых за неделю</div>
-            <div className="text-3xl font-bold text-bordeaux-400">{newThisWeek}</div>
-          </div>
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <div className="text-gray-400 text-sm mb-1">💎 Активных подписок</div>
-            <div className="text-3xl font-bold text-green-400">{activeSubsCount}</div>
-          </div>
+        {/* Карточки ключевых метрик */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <MetricCard
+            icon="💰"
+            label="MRR"
+            value={overview ? `${Math.round(overview.mrr_rub).toLocaleString('ru-RU')} ₽` : '—'}
+            sub="мес. регулярный доход"
+            accent="text-green-400"
+          />
+          <MetricCard
+            icon="👥"
+            label="Всего пользователей"
+            value={overview?.total_users ?? '—'}
+            sub={`+${overview?.new_users_30d ?? 0} за 30 дн.`}
+          />
+          <MetricCard
+            icon="💎"
+            label="Платящих"
+            value={overview?.active_subs ?? '—'}
+            sub={`конверсия ${overview?.conversion_rate.toFixed(1) ?? 0}%`}
+            accent="text-bordeaux-400"
+          />
+          <MetricCard
+            icon="🔥"
+            label="DAU / WAU"
+            value={overview ? `${overview.dau} / ${overview.wau}` : '—'}
+            sub="активные пользователи"
+          />
         </div>
 
+        {/* Графики */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="lg:col-span-2">
+            <RegistrationsChart token={token} days={30} />
+          </div>
+          <SubscriptionsChart token={token} />
+        </div>
+
+        {/* Таблица пользователей */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-gray-800">
             <h2 className="text-lg font-semibold text-white">Пользователи</h2>
-            <button
-              onClick={loadData}
-              className="text-sm text-bordeaux-400 hover:text-bordeaux-300 transition-colors"
-            >
-              ⟳ Обновить
-            </button>
           </div>
 
           {loading ? (
@@ -236,7 +260,6 @@ export default function Dashboard({ token, onLogout }: Props) {
         </div>
       </main>
 
-      {/* Модалка деталей пользователя */}
       {selectedUser && (
         <UserDetailModal
           token={token}
@@ -245,7 +268,6 @@ export default function Dashboard({ token, onLogout }: Props) {
         />
       )}
 
-      {/* Модалка активации подписки */}
       {modalUser && (
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
@@ -257,7 +279,7 @@ export default function Dashboard({ token, onLogout }: Props) {
           >
             <h2 className="text-xl font-bold text-white mb-2">Активировать подписку</h2>
             <p className="text-gray-400 text-sm mb-6">
-              для <span className="text-white font-medium">{modalUser.name}</span> ({modalUser.email})
+              для <span className="text-white font-medium">{modalUser.name}</span>
             </p>
 
             <div className="space-y-3 mb-6">
@@ -282,9 +304,9 @@ export default function Dashboard({ token, onLogout }: Props) {
                     <div>
                       <div className="text-white font-medium">{planBadge(plan)}</div>
                       <div className="text-xs text-gray-400 mt-1">
-                        {plan === 'monthly' && 'Доступ на 1 месяц'}
-                        {plan === 'yearly' && 'Доступ на 1 год (выгодно)'}
-                        {plan === 'lifetime' && 'Бессрочный доступ'}
+                        {plan === 'monthly' && '499 ₽/мес'}
+                        {plan === 'yearly' && '3990 ₽/год (выгодно)'}
+                        {plan === 'lifetime' && 'Бессрочно'}
                       </div>
                     </div>
                   </div>
@@ -311,6 +333,31 @@ export default function Dashboard({ token, onLogout }: Props) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  sub,
+  accent = 'text-white',
+}: {
+  icon: string;
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+      <div className="text-gray-400 text-xs mb-2 flex items-center gap-1">
+        <span>{icon}</span>
+        <span>{label}</span>
+      </div>
+      <div className={`text-2xl font-bold ${accent}`}>{value}</div>
+      {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
     </div>
   );
 }

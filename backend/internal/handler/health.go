@@ -58,6 +58,13 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			protected.GET("/users/:id/subscription", subHandler.GetUserSubscription)
 			protected.POST("/users/:id/subscription", subHandler.ActivateSubscription)
 			protected.DELETE("/subscriptions/:id", subHandler.CancelSubscription)
+
+			// Аналитика (новое!)
+			analyticsHandler := NewAnalyticsHandler(dbPool)
+			protected.GET("/analytics/overview", analyticsHandler.Overview)
+			protected.GET("/analytics/registrations", analyticsHandler.RegistrationsByDay)
+			protected.GET("/analytics/subscriptions", analyticsHandler.SubscriptionBreakdown)
+			
 		}
 	}
 
