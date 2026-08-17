@@ -8,6 +8,9 @@ set -e
 
 echo "🚀 [$(date)] Начало деплоя..."
 
+# Явно указываем SSH config для git операций
+export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -i ~/.ssh/deploy_key"
+
 cd /opt/pelvictrainer
 
 # 1. Обновляем код
@@ -19,13 +22,13 @@ echo "🐳 Пересборка backend..."
 docker compose build api
 docker compose up -d api
 
-# 3. Пересобираем frontend (админку)
+# 3. Пересобираем frontend
 echo "⚛️ Пересборка админки..."
 cd admin-frontend
 npm install --silent
 npm run build
 
-# 4. Проверка что API жив
+# 4. Health check
 echo " Health check..."
 sleep 3
 curl -sf http://127.0.0.1:8081/health > /dev/null && echo "✅ API работает" || echo "⚠️ API не ответил"
