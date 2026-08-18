@@ -67,6 +67,13 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 			protected.GET("/analytics/subscriptions", analyticsHandler.SubscriptionBreakdown)
 			protected.GET("/analytics/cohorts", analyticsHandler.CohortAnalysis)
 
+   			// NEW: Платежи
+            paymentsHandler := NewPaymentsHandler(dbPool)
+            protected.POST("/payments/create", paymentsHandler.CreatePayment)
+            protected.GET("/me/payments", paymentsHandler.GetMyPayments)
+            protected.GET("/payments", paymentsHandler.AdminGetPayments)
+            protected.GET("/revenue", paymentsHandler.AdminGetRevenue)
+
 			// Мобильное приложение (protected + rate limit)
 			mobileHandler := NewMobileHandler(dbPool)
 			mobile := v1.Group("/")
@@ -81,7 +88,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService) *gin.Eng
 				mobile.POST("/devices", mobileHandler.RegisterDevice)
 				mobile.DELETE("/devices", mobileHandler.UnregisterDevice)
 			}
-			
+
 		}
 	}
 

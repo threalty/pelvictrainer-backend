@@ -162,3 +162,36 @@ export async function getCohortAnalysis(token: string): Promise<CohortAnalysis> 
   if (!res.ok) throw new Error('Ошибка загрузки когорт');
   return res.json();
 }
+
+export interface AdminPayment {
+  id: number;
+  user_id: number;
+  user_email: string;
+  user_name: string;
+  amount_cents: number;
+  currency: string;
+  plan: string;
+  status: string;
+  created_at: string;
+}
+
+export interface RevenueStats {
+  total_revenue_cents: number;
+  month_revenue_cents: number;
+  week_revenue_cents: number;
+  total_payments: number;
+  active_subscriptions: number;
+}
+
+export async function getAdminPayments(token: string): Promise<AdminPayment[]> {
+  const res = await authFetch(`${API_URL}/api/v1/admin/payments`, token);
+  if (!res.ok) throw new Error('Ошибка загрузки платежей');
+  const data = await res.json();
+  return data.payments || [];
+}
+
+export async function getRevenueStats(token: string): Promise<RevenueStats> {
+  const res = await authFetch(`${API_URL}/api/v1/admin/revenue`, token);
+  if (!res.ok) throw new Error('Ошибка загрузки статистики');
+  return res.json();
+}

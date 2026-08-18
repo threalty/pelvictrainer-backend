@@ -13,6 +13,7 @@ import UserDetailModal from '../components/UserDetailModal';
 import RegistrationsChart from '../components/RegistrationsChart';
 import SubscriptionsChart from '../components/SubscriptionsChart';
 import CohortHeatmap from '../components/CohortHeatmap';
+import PaymentsPage from './PaymentsPage';
 
 interface Props {
   token: string;
@@ -30,6 +31,8 @@ export default function Dashboard({ token, onLogout }: Props) {
   const [modalUser, setModalUser] = useState<User | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly' | 'lifetime'>('monthly');
   const [submitting, setSubmitting] = useState(false);
+
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'payments'>('dashboard');
 
   const loadData = async () => {
     setLoading(true);
@@ -105,6 +108,10 @@ export default function Dashboard({ token, onLogout }: Props) {
     );
   };
 
+  if (currentPage === 'payments') {
+    return <PaymentsPage token={token} onBack={() => setCurrentPage('dashboard')} />;
+  }
+
   return (
     <div className="min-h-screen">
       <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
@@ -118,9 +125,15 @@ export default function Dashboard({ token, onLogout }: Props) {
               ● API онлайн
             </span>
             <button
+              onClick={() => setCurrentPage('payments')}
+              className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-2 transition-colors"
+            >
+              💰 Платежи
+            </button>
+            <button
               onClick={loadData}
               disabled={loading}
-              className="text-sm text-bordeaux-400 hover:text-bordeaux-300 disabled:opacity-50 transition-colors"
+              className="text-sm text-gray-400 hover:text-white disabled:opacity-50 transition-colors"
             >
               ⟳ Обновить
             </button>
@@ -135,7 +148,6 @@ export default function Dashboard({ token, onLogout }: Props) {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Карточки ключевых метрик */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           <MetricCard
             icon="💰"
@@ -155,7 +167,7 @@ export default function Dashboard({ token, onLogout }: Props) {
             label="Платящих"
             value={overview?.active_subs ?? '—'}
             sub={`конверсия ${overview?.conversion_rate.toFixed(1) ?? 0}%`}
-            accent="text-bordeaux-400"
+            accent="text-red-400"
           />
           <MetricCard
             icon="🔥"
@@ -165,20 +177,17 @@ export default function Dashboard({ token, onLogout }: Props) {
           />
         </div>
 
-        {/* Графики */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           <div className="lg:col-span-2">
             <RegistrationsChart token={token} days={30} />
           </div>
           <SubscriptionsChart token={token} />
-        </div>   
+        </div>
 
-        {/* Когортный анализ */}
         <div className="mb-8">
           <CohortHeatmap token={token} />
-        </div>              
+        </div>
 
-        {/* Таблица пользователей */}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-800">
             <h2 className="text-lg font-semibold text-white">Пользователи</h2>
@@ -239,7 +248,7 @@ export default function Dashboard({ token, onLogout }: Props) {
                                 e.stopPropagation();
                                 setModalUser(user);
                               }}
-                              className="text-xs text-bordeaux-400 hover:text-bordeaux-300 transition-colors"
+                              className="text-xs text-red-400 hover:text-red-300 transition-colors"
                             >
                               {sub ? 'Изменить' : '+ Подписка'}
                             </button>
@@ -294,7 +303,7 @@ export default function Dashboard({ token, onLogout }: Props) {
                   key={plan}
                   className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-colors ${
                     selectedPlan === plan
-                      ? 'border-bordeaux-600 bg-bordeaux-950/30'
+                      ? 'border-red-600 bg-red-950/30'
                       : 'border-gray-800 bg-gray-800/30 hover:border-gray-700'
                   }`}
                 >
@@ -305,14 +314,14 @@ export default function Dashboard({ token, onLogout }: Props) {
                       value={plan}
                       checked={selectedPlan === plan}
                       onChange={() => setSelectedPlan(plan)}
-                      className="w-4 h-4 accent-bordeaux-600"
+                      className="w-4 h-4 accent-red-600"
                     />
                     <div>
                       <div className="text-white font-medium">{planBadge(plan)}</div>
                       <div className="text-xs text-gray-400 mt-1">
-                        {plan === 'monthly' && '499 ₽/мес'}
-                        {plan === 'yearly' && '3990 ₽/год (выгодно)'}
-                        {plan === 'lifetime' && 'Бессрочно'}
+                        {plan === 'monthly' && '299 ₽/мес'}
+                        {plan === 'yearly' && '2 490 ₽/год (выгодно)'}
+                        {plan === 'lifetime' && '4 990 ₽ — навсегда'}
                       </div>
                     </div>
                   </div>
@@ -331,7 +340,7 @@ export default function Dashboard({ token, onLogout }: Props) {
               <button
                 onClick={handleActivate}
                 disabled={submitting}
-                className="flex-1 bg-bordeaux-600 hover:bg-bordeaux-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
+                className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
               >
                 {submitting ? 'Активация...' : 'Активировать'}
               </button>
