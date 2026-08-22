@@ -30,13 +30,17 @@ func NewAuthHandler(db *pgxpool.Pool, redis *redis.Client, jwtService *auth.JWTS
 
 // RegisterRequest запрос на регистрацию
 type RegisterRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8"`
-	Name     string `json:"name" binding:"required"`
+    Email          string `json:"email" binding:"required,email"`
+    Password       string `json:"password" binding:"required,min=8"`
+    Name           string `json:"name" binding:"required"`
+    ConsentPrivacy bool   `json:"consent_privacy"`
+    ConsentHealth  bool   `json:"consent_health"`
+    ConsentAge     bool   `json:"consent_age"`
 }
 
 // Register регистрирует нового пользователя
 func (h *AuthHandler) Register(c *gin.Context) {
+	
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -90,6 +94,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			"error": "Ошибка создания пользователя",
 		})
 		return
+	}
+
+	ipAddress := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+	consentTypes := []string{"age", "privacy", "health"}
+	
+	for _, consentType := range consentTypes {
+    _, err = h.db.Exec(ctx, `
+        INSERT INTO user_consents (user_id, consent_type, consent_version, ip_address, user_agent, created_at)
+        VALUES ($1, $2, 'v1.0', $3, $4, NOW())
+        ON CONFLICT (user_id, consent_type, consent_version) DO NOTHING
+    `, userID, consentType, ipAddress, userAgent)
+    if err != nil {
+        _ = err
+    }
 	}
 
 	// Генерируем токены
