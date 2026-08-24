@@ -1,39 +1,56 @@
 package config
 
 import (
+	"log"
 	"os"
-
-	"github.com/joho/godotenv"
 )
 
-// Config хранит все настройки приложения
+// Config содержит конфигурацию приложения
 type Config struct {
-	Port           string
-	DatabaseURL    string
-	RedisURL       string
-	JWTSecret      string
-	Environment    string
+	Port        string
+	Environment string
+	DatabaseURL string
+	RedisURL    string
+	JWTSecret   string
+	AppBaseURL  string // базовый URL приложения (для ссылок в письмах)
+
+	// Email (SMTP) настройки
+	SMTPHost     string
+	SMTPPort     string
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPFromName string
 }
 
 // Load загружает конфигурацию из переменных окружения
 func Load() *Config {
-	// Загружаем .env файл если существует (для локальной разработки)
-	_ = godotenv.Load()
-
-	return &Config{
-		Port:        getEnv("PORT", "8080"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://pelvic:ChangeMe_StrongPassword_123!@localhost:5432/pelvictrainer?sslmode=disable"),
-		RedisURL:    getEnv("REDIS_URL", "redis://:RedisStrongPass_456!@localhost:6379"),
-		JWTSecret:   getEnv("JWT_SECRET", "change-me-in-production"),
-		Environment: getEnv("ENVIRONMENT", "development"),
+	cfg := &Config{
+		Port:         getEnv("PORT", "8080"),
+		Environment:  getEnv("ENVIRONMENT", "development"),
+		DatabaseURL:  getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/pelvictrainer?sslmode=disable"),
+		RedisURL:     getEnv("REDIS_URL", "redis://localhost:6379"),
+		JWTSecret:    getEnv("JWT_SECRET", "change-me-in-production"),
+		AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:8080"),
+		SMTPHost:     getEnv("SMTP_HOST", "smtp.yandex.ru"),
+		SMTPPort:     getEnv("SMTP_PORT", "587"),
+		SMTPUsername: getEnv("SMTP_USERNAME", ""),
+		SMTPPassword: getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:     getEnv("SMTP_FROM", "noreply@pelvictrainer.ru"),
+		SMTPFromName: getEnv("SMTP_FROM_NAME", "PelvicTrainer"),
 	}
+
+	if cfg.SMTPUsername == "" {
+		log.Println("⚠️ SMTP_USERNAME не задан — отправка email будет недоступна")
+	}
+
+	return cfg
 }
 
-// getEnv возвращает значение переменной окружения или default
-func getEnv(key, defaultValue string) string {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
+// getEnv возвращает значение переменной окружения или дефолт
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
 	}
-	return value
+	return fallback
 }
