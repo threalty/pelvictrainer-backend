@@ -2,19 +2,22 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"pelvictrainer/backend/internal/email"
 )
 
 type PaymentsHandler struct {
-	db *pgxpool.Pool
+	db          *pgxpool.Pool
+	emailSender *email.Sender
 }
 
-func NewPaymentsHandler(db *pgxpool.Pool) *PaymentsHandler {
-	return &PaymentsHandler{db: db}
+func NewPaymentsHandler(db *pgxpool.Pool, emailSender *email.Sender) *PaymentsHandler {
+	return &PaymentsHandler{db: db, emailSender: emailSender}
 }
 
 type Payment struct {
@@ -55,10 +58,7 @@ func planAmountCents(plan string) int {
 	}
 }
 
-// ===== MOBILE ENDPOINTS =====
-
 // CreatePayment создание платежа из моб приложения
-// Dev-режим: сразу активируем подписку без ЮKassa
 func (h *PaymentsHandler) CreatePayment(c *gin.Context) {
 	userID, exists := c.Get("user_id")
 	if !exists {
@@ -125,6 +125,19 @@ func (h *PaymentsHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
+	// === НОВОЕ: Отправляем письмо об активации подписки ===
+	var userEmail, userName string
+	emailErr := h.db.QueryRow(ctx, `SELECT email, name FROM users WHERE id = $1`, userID).Scan(&userEmail, &userName)
+	if emailErr == nil && h.emailSender != nil {
+		go func() {
+			if err := h.emailSender.SendSubscriptionActivated(userEmail, userName, req.Plan); err != nil {
+				fmt.Printf("⚠️ Ошибка отправки письма об активации на %s: %v\n", userEmail, err)
+			} else {
+				fmt.Printf("✅ Письмо об активации отправлено на %s (план: %s)\n", userEmail, req.Plan)
+			}
+		}()
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"payment_id": paymentID,
 		"status":     "succeeded",
@@ -169,8 +182,6 @@ func (h *PaymentsHandler) GetMyPayments(c *gin.Context) {
 		"count":    len(payments),
 	})
 }
-
-// ===== ADMIN ENDPOINTS =====
 
 // AdminGetPayments список всех платежей для админки
 func (h *PaymentsHandler) AdminGetPayments(c *gin.Context) {

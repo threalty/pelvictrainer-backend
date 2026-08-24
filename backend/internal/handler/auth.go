@@ -2,45 +2,47 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-
 	"pelvictrainer/backend/internal/auth"
+	"pelvictrainer/backend/internal/email"
 )
 
 // AuthHandler обработчики аутентификации
 type AuthHandler struct {
-	db         *pgxpool.Pool
-	redis      *redis.Client
-	jwtService *auth.JWTService
+	db          *pgxpool.Pool
+	redis       *redis.Client
+	jwtService  *auth.JWTService
+	emailSender *email.Sender
 }
 
 // NewAuthHandler создаёт обработчик аутентификации
-func NewAuthHandler(db *pgxpool.Pool, redis *redis.Client, jwtService *auth.JWTService) *AuthHandler {
+func NewAuthHandler(db *pgxpool.Pool, redis *redis.Client, jwtService *auth.JWTService, emailSender *email.Sender) *AuthHandler {
 	return &AuthHandler{
-		db:         db,
-		redis:      redis,
-		jwtService: jwtService,
+		db:          db,
+		redis:       redis,
+		jwtService:  jwtService,
+		emailSender: emailSender,
 	}
 }
 
 // RegisterRequest запрос на регистрацию
 type RegisterRequest struct {
-    Email          string `json:"email" binding:"required,email"`
-    Password       string `json:"password" binding:"required,min=8"`
-    Name           string `json:"name" binding:"required"`
-    ConsentPrivacy bool   `json:"consent_privacy"`
-    ConsentHealth  bool   `json:"consent_health"`
-    ConsentAge     bool   `json:"consent_age"`
+	Email          string `json:"email" binding:"required,email"`
+	Password       string `json:"password" binding:"required,min=8"`
+	Name           string `json:"name" binding:"required"`
+	ConsentPrivacy bool   `json:"consent_privacy"`
+	ConsentHealth  bool   `json:"consent_health"`
+	ConsentAge     bool   `json:"consent_age"`
 }
 
 // Register регистрирует нового пользователя
 func (h *AuthHandler) Register(c *gin.Context) {
-	
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -99,16 +101,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	ipAddress := c.ClientIP()
 	userAgent := c.Request.UserAgent()
 	consentTypes := []string{"age", "privacy", "health"}
-	
+
 	for _, consentType := range consentTypes {
-    _, err = h.db.Exec(ctx, `
-        INSERT INTO user_consents (user_id, consent_type, consent_version, ip_address, user_agent, created_at)
-        VALUES ($1, $2, 'v1.0', $3, $4, NOW())
-        ON CONFLICT (user_id, consent_type, consent_version) DO NOTHING
-    `, userID, consentType, ipAddress, userAgent)
-    if err != nil {
-        _ = err
-    }
+		_, err = h.db.Exec(ctx, `
+			INSERT INTO user_consents (user_id, consent_type, consent_version, ip_address, user_agent, created_at)
+			VALUES ($1, $2, 'v1.0', $3, $4, NOW())
+			ON CONFLICT (user_id, consent_type, consent_version) DO NOTHING
+		`, userID, consentType, ipAddress, userAgent)
+		if err != nil {
+			_ = err
+		}
 	}
 
 	// Генерируем токены
@@ -129,6 +131,17 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			"error": "Ошибка сохранения refresh токена",
 		})
 		return
+	}
+
+	// === НОВОЕ: Отправляем приветственное письмо ===
+	if h.emailSender != nil {
+		go func() {
+			if err := h.emailSender.SendWelcome(req.Email, req.Name); err != nil {
+				fmt.Printf("⚠️ Ошибка отправки приветственного письма на %s: %v\n", req.Email, err)
+			} else {
+				fmt.Printf("✅ Приветственное письмо отправлено на %s\n", req.Email)
+			}
+		}()
 	}
 
 	c.JSON(http.StatusCreated, gin.H{

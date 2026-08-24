@@ -14,6 +14,7 @@ import RegistrationsChart from '../components/RegistrationsChart';
 import SubscriptionsChart from '../components/SubscriptionsChart';
 import CohortHeatmap from '../components/CohortHeatmap';
 import PaymentsPage from './PaymentsPage';
+import BroadcastsPage from './BroadcastsPage';
 
 interface Props {
   token: string;
@@ -32,7 +33,7 @@ export default function Dashboard({ token, onLogout }: Props) {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly' | 'lifetime'>('monthly');
   const [submitting, setSubmitting] = useState(false);
 
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'payments'>('dashboard');
+  const [currentPage, setCurrentPage] = useState<'dashboard' | 'payments' | 'broadcasts'>('dashboard');
 
   const loadData = async () => {
     setLoading(true);
@@ -112,6 +113,10 @@ export default function Dashboard({ token, onLogout }: Props) {
     return <PaymentsPage token={token} onBack={() => setCurrentPage('dashboard')} />;
   }
 
+  if (currentPage === 'broadcasts') {
+    return <BroadcastsPage token={token} onBack={() => setCurrentPage('dashboard')} />;
+  }
+
   return (
     <div className="min-h-screen">
       <header className="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
@@ -120,7 +125,7 @@ export default function Dashboard({ token, onLogout }: Props) {
             <span className="text-2xl">💪</span>
             <h1 className="text-lg font-bold text-white">PelvicTrainer Admin</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <span className="text-xs text-green-400 bg-green-900/30 border border-green-800 rounded-full px-3 py-1">
               ● API онлайн
             </span>
@@ -129,6 +134,12 @@ export default function Dashboard({ token, onLogout }: Props) {
               className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-2 transition-colors"
             >
               💰 Платежи
+            </button>
+            <button
+              onClick={() => setCurrentPage('broadcasts')}
+              className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-2 transition-colors"
+            >
+              📧 Рассылки
             </button>
             <button
               onClick={loadData}

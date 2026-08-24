@@ -35,7 +35,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService, emailSen
 
 		// Аутентификация (публичные)
 		authGroup := v1.Group("/auth")
-		authGroup.Use(middleware.RateLimitMiddleware(20, time.Minute)) // защита от брутфорса
+		authGroup.Use(middleware.RateLimitMiddleware(20, time.Minute))
 		{
 			authGroup.POST("/register", authHandler.Register)
 			authGroup.POST("/login", authHandler.Login)
@@ -45,7 +45,7 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService, emailSen
 
 		// Восстановление пароля (публичные, но с отдельным лимитом)
 		recoveryGroup := v1.Group("/auth")
-		recoveryGroup.Use(middleware.RateLimitMiddleware(5, time.Minute)) // строгий лимит
+		recoveryGroup.Use(middleware.RateLimitMiddleware(5, time.Minute))
 		{
 			recoveryHandler := NewAuthRecoveryHandler(dbPool, emailSender, appBaseURL)
 			recoveryGroup.POST("/forgot-password", recoveryHandler.ForgotPassword)
@@ -79,11 +79,17 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService, emailSen
 			protected.GET("/analytics/cohorts", analyticsHandler.CohortAnalysis)
 
 			// Платежи
-			paymentsHandler := NewPaymentsHandler(dbPool)
+			paymentsHandler := NewPaymentsHandler(dbPool, emailSender)
 			protected.POST("/payments/create", paymentsHandler.CreatePayment)
 			protected.GET("/me/payments", paymentsHandler.GetMyPayments)
 			protected.GET("/payments", paymentsHandler.AdminGetPayments)
 			protected.GET("/revenue", paymentsHandler.AdminGetRevenue)
+
+			// Рассылки (админ)
+			broadcastHandler := NewBroadcastHandler(dbPool, emailSender)
+			protected.GET("/broadcasts", broadcastHandler.AdminGetBroadcasts)
+			protected.POST("/broadcasts", broadcastHandler.AdminCreateBroadcast)
+			protected.POST("/broadcasts/:id/send", broadcastHandler.AdminSendBroadcast)
 
 			// Мобильное приложение
 			mobileHandler := NewMobileHandler(dbPool)
@@ -119,8 +125,8 @@ func healthCheck(c *gin.Context) {
 func readinessCheck(c *gin.Context) {
 	if dbPool == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status":  "not_ready",
-			"error":   "БД не подключена",
+			"status": "not_ready",
+			"error":  "БД не подключена",
 		})
 		return
 	}
@@ -130,8 +136,8 @@ func readinessCheck(c *gin.Context) {
 
 	if err := dbPool.Ping(ctx); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status":  "not_ready",
-			"error":   "БД недоступна",
+			"status": "not_ready",
+			"error":  "БД недоступна",
 		})
 		return
 	}

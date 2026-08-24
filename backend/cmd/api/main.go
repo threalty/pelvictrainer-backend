@@ -3,6 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/config"
@@ -12,7 +15,6 @@ import (
 )
 
 func main() {
-	// Загружаем конфигурацию
 	cfg := config.Load()
 
 	log.Println("🚀 Запуск PelvicTrainer API...")
@@ -20,27 +22,22 @@ func main() {
 	log.Printf("   Окружение: %s", cfg.Environment)
 	log.Printf("   App Base URL: %s", cfg.AppBaseURL)
 
-	// Подключаемся к PostgreSQL
 	pgDB, err := db.NewPostgresDB(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("❌ Ошибка подключения к PostgreSQL: %v", err)
 	}
 	defer pgDB.Close()
 
-	// Подключаемся к Redis
 	redisClient, err := db.NewRedisClient(cfg.RedisURL)
 	if err != nil {
 		log.Fatalf("❌ Ошибка подключения к Redis: %v", err)
 	}
 	defer redisClient.Close()
 
-	// Создаём JWT сервис
 	jwtService := auth.NewJWTService(cfg.JWTSecret)
 
-	// Передаём пул подключений в handler
 	handler.SetDBPool(pgDB.Pool)
 
-	// Инициализируем email-сервис
 	var emailSender *email.Sender
 	if cfg.SMTPUsername != "" {
 		emailSender = email.NewSender(
@@ -56,26 +53,26 @@ func main() {
 		log.Println("⚠️ Email-сервис не инициализирован (нет SMTP-настроек)")
 	}
 
-	// Создаём auth handler
-	authHandler := handler.NewAuthHandler(pgDB.Pool, redisClient, jwtService)
+	authHandler := handler.NewAuthHandler(pgDB.Pool, redisClient, jwtService, emailSender)
 
-	// Создаём роутер
 	router := handler.SetupRouter(authHandler, jwtService, emailSender, cfg.AppBaseURL)
 
-	// Запускаем HTTP сервер
-	log.Printf("✅ API доступен на http://localhost:%s/health", cfg.Port)
-	log.Printf("✅ Endpoints:")
-	log.Printf("   GET  /health")
-	log.Printf("   GET  /ready")
-	log.Printf("   POST /api/v1/auth/register")
-	log.Printf("   POST /api/v1/auth/login")
-	log.Printf("   POST /api/v1/auth/refresh")
-	log.Printf("   POST /api/v1/auth/logout")
-	log.Printf("   POST /api/v1/auth/forgot-password  (НОВОЕ)")
-	log.Printf("   POST /api/v1/auth/reset-password   (НОВОЕ)")
-	log.Printf("   POST /api/v1/auth/check-token      (НОВОЕ)")
+	// Дублирующие роуты для Nginx (с префиксом /api)
+	router.GET("/api/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":  "ok",
+			"service": "pelvictrainer-api",
+			"version": "0.1.0",
+			"time":    time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+	router.GET("/api/ready", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ready"})
+	})
 
-	if err := http.ListenAndServe(":"+cfg.Port, router); err != nil {
+	log.Printf("✅ API доступен на http://0.0.0.0:%s/health", cfg.Port)
+
+	if err := http.ListenAndServe("0.0.0.0:"+cfg.Port, router); err != nil {
 		log.Fatalf("❌ Сервер упал: %v", err)
 	}
 }

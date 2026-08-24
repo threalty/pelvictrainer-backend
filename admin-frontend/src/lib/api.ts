@@ -1,4 +1,4 @@
-const API_URL = 'https://api.pelvictrainer.ru';
+const API_URL = '';
 
 export interface LoginResponse {
   access_token: string;
@@ -184,14 +184,70 @@ export interface RevenueStats {
 }
 
 export async function getAdminPayments(token: string): Promise<AdminPayment[]> {
-  const res = await authFetch(`${API_URL}/api/v1/admin/payments`, token);
+  const res = await authFetch(`${API_URL}/api/v1/payments`, token);
   if (!res.ok) throw new Error('Ошибка загрузки платежей');
   const data = await res.json();
   return data.payments || [];
 }
 
 export async function getRevenueStats(token: string): Promise<RevenueStats> {
-  const res = await authFetch(`${API_URL}/api/v1/admin/revenue`, token);
+  const res = await authFetch(`${API_URL}/api/v1/revenue`, token);
   if (!res.ok) throw new Error('Ошибка загрузки статистики');
+  return res.json();
+}
+
+// ============ BROADCASTS (РАССЫЛКИ) ============
+
+export interface Broadcast {
+  id: number;
+  subject: string;
+  body: string;
+  audience: 'all' | 'premium' | 'free' | 'inactive';
+  status: 'pending' | 'sending' | 'sent' | 'failed';
+  sent_count: number;
+  failed_count: number;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export interface CreateBroadcastRequest {
+  subject: string;
+  body: string;
+  audience: 'all' | 'premium' | 'free' | 'inactive';
+}
+
+export async function getBroadcasts(token: string): Promise<Broadcast[]> {
+  const res = await authFetch(`${API_URL}/api/v1/broadcasts`, token);
+  if (!res.ok) throw new Error('Не удалось загрузить рассылки');
+  const data = await res.json();
+  return data.broadcasts || [];
+}
+
+export async function createBroadcast(
+  token: string,
+  request: CreateBroadcastRequest
+): Promise<{ broadcast_id: number }> {
+  const res = await authFetch(`${API_URL}/api/v1/broadcasts`, token, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Ошибка создания' }));
+    throw new Error(error.error || 'Не удалось создать рассылку');
+  }
+  return res.json();
+}
+
+export async function sendBroadcast(
+  token: string,
+  broadcastId: number
+): Promise<{ message: string; total_recipients: number }> {
+  const res = await authFetch(`${API_URL}/api/v1/broadcasts/${broadcastId}/send`, token, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Ошибка отправки' }));
+    throw new Error(error.error || 'Не удалось отправить рассылку');
+  }
   return res.json();
 }

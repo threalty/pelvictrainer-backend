@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/email"
 )
 
@@ -58,8 +59,7 @@ func (h *AuthRecoveryHandler) ForgotPassword(c *gin.Context) {
 	`, req.Email).Scan(&userID, &userName)
 
 	if err != nil {
-		// Возвращаем тот же ответ, что и при успешном запросе,
-		// чтобы не раскрывать существование аккаунта
+		// Возвращаем тот же ответ, чтобы не раскрывать существование аккаунта
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Если аккаунт с таким email существует, ссылка для сброса пароля отправлена",
 		})
@@ -101,14 +101,12 @@ func (h *AuthRecoveryHandler) ForgotPassword(c *gin.Context) {
 	}
 
 	// Формируем ссылку для сброса пароля
-	// Ссылка ведёт на мобильное приложение или веб-страницу сброса
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", h.appBaseURL, token)
 
 	// Отправляем письмо
 	if h.emailSender != nil {
 		err = h.emailSender.SendPasswordReset(req.Email, userName, resetLink)
 		if err != nil {
-			// Логируем ошибку, но не раскрываем пользователю
 			fmt.Printf("⚠️ Ошибка отправки письма на %s: %v\n", req.Email, err)
 		}
 	}
@@ -158,8 +156,8 @@ func (h *AuthRecoveryHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	// Хэшируем новый пароль
-	passwordHash, err := hashPassword(req.NewPassword)
+	// === ИСПРАВЛЕНО: используем auth.HashPassword ===
+	passwordHash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Ошибка хэширования пароля",
@@ -200,7 +198,7 @@ func (h *AuthRecoveryHandler) ResetPassword(c *gin.Context) {
 	})
 }
 
-// CheckTokenRequest запрос для проверки токена (для мобильного приложения)
+// CheckTokenRequest запрос для проверки токена
 type CheckTokenRequest struct {
 	Token string `json:"token" binding:"required"`
 }
@@ -256,9 +254,4 @@ func generateSecureToken(length int) (string, error) {
 func hashToken(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
-}
-
-// hashPassword хэширует пароль (используем ту же функцию, что в auth)
-func hashPassword(password string) (string, error) {
-	return HashPassword(password)
 }
