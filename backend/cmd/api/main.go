@@ -3,9 +3,6 @@ package main
 import (
 	"log"
 	"net/http"
-	"time"
-
-	"github.com/gin-gonic/gin"
 
 	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/config"
@@ -57,18 +54,6 @@ func main() {
 
 	router := handler.SetupRouter(authHandler, jwtService, emailSender, cfg.AppBaseURL)
 
-	// Дублирующие роуты для Nginx (с префиксом /api)
-	router.GET("/api/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"service": "pelvictrainer-api",
-			"version": "0.1.0",
-			"time":    time.Now().UTC().Format(time.RFC3339),
-		})
-	})
-	router.GET("/api/ready", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ready"})
-	})
 
 	log.Printf("✅ API доступен на http://0.0.0.0:%s/health", cfg.Port)
 
