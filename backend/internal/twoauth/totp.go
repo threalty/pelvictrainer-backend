@@ -57,18 +57,21 @@ func ValidateCode(secret, code string) bool {
 
 // ValidateCodeWithWindow проверяет код с окном ±1 (на случай расхождения времени)
 // Это полезно, если время на устройстве пользователя немного отличается
+// ValidateCodeWithWindow проверяет код с окном ±1 период (±30 секунд)
+// Библиотека totp.Validate уже имеет встроенный допуск, но мы явно задаём параметры
 func ValidateCodeWithWindow(secret, code string) bool {
-	// Текущее время
-	now := time.Now()
-	
-	// Проверяем текущий момент и ±30 секунд
-	for _, offset := range []time.Duration{0, -30 * time.Second, 30 * time.Second} {
-		t := now.Add(offset)
-		if totp.ValidateCustom(code, secret, t, otp.DigitsSix) {
-			return true
-		}
+	opts := totp.ValidateOpts{
+		Period:    30,                // стандартный период 30 секунд
+		Skew:      1,                 // допуск ±1 период (±30 секунд)
+		Digits:    otp.DigitsSix,     // 6 цифр
+		Algorithm: otp.AlgorithmSHA1, // стандартный алгоритм
 	}
-	return false
+	
+	valid, err := totp.ValidateCustom(code, secret, time.Now(), opts)
+	if err != nil {
+		return false
+	}
+	return valid
 }
 
 // GenerateBackupCodes генерирует 10 одноразовых кодов восстановления
