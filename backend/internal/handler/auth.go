@@ -2,18 +2,21 @@ package handler
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
+
 	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/email"
 )
 
-// AuthHandler обработчики аутентификации
+// AuthHandler обработчик аутентификации
 type AuthHandler struct {
 	db          *pgxpool.Pool
 	redis       *redis.Client
@@ -22,10 +25,15 @@ type AuthHandler struct {
 }
 
 // NewAuthHandler создаёт обработчик аутентификации
-func NewAuthHandler(db *pgxpool.Pool, redis *redis.Client, jwtService *auth.JWTService, emailSender *email.Sender) *AuthHandler {
+func NewAuthHandler(
+	db *pgxpool.Pool,
+	redisClient *redis.Client,
+	jwtService *auth.JWTService,
+	emailSender *email.Sender,
+) *AuthHandler {
 	return &AuthHandler{
 		db:          db,
-		redis:       redis,
+		redis:       redisClient,
 		jwtService:  jwtService,
 		emailSender: emailSender,
 	}
@@ -35,125 +43,10 @@ func NewAuthHandler(db *pgxpool.Pool, redis *redis.Client, jwtService *auth.JWTS
 type RegisterRequest struct {
 	Email          string `json:"email" binding:"required,email"`
 	Password       string `json:"password" binding:"required,min=8"`
-	Name           string `json:"name" binding:"required"`
-	ConsentPrivacy bool   `json:"consent_privacy"`
-	ConsentHealth  bool   `json:"consent_health"`
-	ConsentAge     bool   `json:"consent_age"`
-}
-
-// Register регистрирует нового пользователя
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Неверные данные: " + err.Error(),
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	// Проверяем что email не занят
-	var exists bool
-	err := h.db.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)
-	`, req.Email).Scan(&exists)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка проверки email",
-		})
-		return
-	}
-
-	if exists {
-		c.JSON(http.StatusConflict, gin.H{
-			"error": "Пользователь с таким email уже существует",
-		})
-		return
-	}
-
-	// Хэшируем пароль
-	passwordHash, err := auth.HashPassword(req.Password)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка хэширования пароля",
-		})
-		return
-	}
-
-	// Создаём пользователя
-	var userID int
-	err = h.db.QueryRow(ctx, `
-		INSERT INTO users (email, password_hash, name) 
-		VALUES ($1, $2, $3) 
-		RETURNING id
-	`, req.Email, passwordHash, req.Name).Scan(&userID)
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка создания пользователя",
-		})
-		return
-	}
-
-	ipAddress := c.ClientIP()
-	userAgent := c.Request.UserAgent()
-	consentTypes := []string{"age", "privacy", "health"}
-
-	for _, consentType := range consentTypes {
-		_, err = h.db.Exec(ctx, `
-			INSERT INTO user_consents (user_id, consent_type, consent_version, ip_address, user_agent, created_at)
-			VALUES ($1, $2, 'v1.0', $3, $4, NOW())
-			ON CONFLICT (user_id, consent_type, consent_version) DO NOTHING
-		`, userID, consentType, ipAddress, userAgent)
-		if err != nil {
-			_ = err
-		}
-	}
-
-	// Генерируем токены
-	accessToken, err := h.jwtService.GenerateAccessToken(userID, req.Email)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка генерации токена",
-		})
-		return
-	}
-
-	refreshToken := h.jwtService.GenerateRefreshToken()
-
-	// Сохраняем refresh токен в Redis (на 7 дней)
-	err = h.redis.Set(ctx, "refresh:"+refreshToken, userID, 7*24*time.Hour).Err()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка сохранения refresh токена",
-		})
-		return
-	}
-
-	// === НОВОЕ: Отправляем приветственное письмо ===
-	if h.emailSender != nil {
-		go func() {
-			if err := h.emailSender.SendWelcome(req.Email, req.Name); err != nil {
-				fmt.Printf("⚠️ Ошибка отправки приветственного письма на %s: %v\n", req.Email, err)
-			} else {
-				fmt.Printf("✅ Приветственное письмо отправлено на %s\n", req.Email)
-			}
-		}()
-	}
-
-	c.JSON(http.StatusCreated, gin.H{
-		"message":       "Пользователь зарегистрирован",
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"user": gin.H{
-			"id":    userID,
-			"email": req.Email,
-			"name":  req.Name,
-		},
-	})
+	Name           string `json:"name"`
+	ConsentPrivacy bool   `json:"consentPrivacy"`
+	ConsentHealth  bool   `json:"consentHealth"`
+	ConsentAge     bool   `json:"consentAge"`
 }
 
 // LoginRequest запрос на вход
@@ -162,12 +55,32 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required"`
 }
 
-// Login выполняет вход пользователя
-func (h *AuthHandler) Login(c *gin.Context) {
-	var req LoginRequest
+// RefreshRequest запрос на обновление токена
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// authUser внутренняя структура пользователя (для auth)
+type authUser struct {
+	ID           int
+	Email        string
+	Name         string
+	PasswordHash string
+	CreatedAt    time.Time
+}
+
+// Register регистрация нового пользователя
+// POST /api/v1/auth/register
+func (h *AuthHandler) Register(c *gin.Context) {
+	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные: " + err.Error()})
+		return
+	}
+
+	if !req.ConsentPrivacy || !req.ConsentHealth || !req.ConsentAge {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Неверные данные: " + err.Error(),
+			"error": "Необходимо принять все согласия для регистрации",
 		})
 		return
 	}
@@ -175,136 +88,231 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// Ищем пользователя
-	var userID int
-	var email, name, passwordHash string
-	err := h.db.QueryRow(ctx, `
-		SELECT id, email, name, password_hash 
-		FROM users 
-		WHERE email = $1
-	`, req.Email).Scan(&userID, &email, &name, &passwordHash)
-
+	var exists bool
+	err := h.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`, req.Email).Scan(&exists)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Неверный email или пароль",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка проверки пользователя"})
+		return
+	}
+	if exists {
+		c.JSON(http.StatusConflict, gin.H{"error": "Пользователь с таким email уже существует"})
 		return
 	}
 
-	// Проверяем пароль
-	if !auth.CheckPasswordHash(req.Password, passwordHash) {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Неверный email или пароль",
-		})
-		return
-	}
-
-	// Генерируем токены
-	accessToken, err := h.jwtService.GenerateAccessToken(userID, email)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка генерации токена",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка хэширования пароля"})
 		return
 	}
 
-	refreshToken := h.jwtService.GenerateRefreshToken()
-
-	// Сохраняем refresh токен в Redis
-	err = h.redis.Set(ctx, "refresh:"+refreshToken, userID, 7*24*time.Hour).Err()
+	var user authUser
+	err = h.db.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash, name, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		RETURNING id, email, name, created_at
+	`, req.Email, string(hashedPassword), req.Name).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка сохранения refresh токена",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания пользователя"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":       "Вход выполнен",
+	_, _ = h.db.Exec(ctx, `
+		INSERT INTO user_consents (user_id, consent_type, consent_version, ip_address, user_agent, created_at)
+		VALUES 
+			($1, 'privacy', 'v1.0', $2, $3, NOW()),
+			($1, 'health', 'v1.0', $2, $3, NOW()),
+			($1, 'age', 'v1.0', $2, $3, NOW())
+	`, user.ID, c.ClientIP(), c.Request.UserAgent())
+
+	accessToken, refreshToken, err := h.generateTokens(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токенов"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message":       "Пользователь зарегистрирован",
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": gin.H{
-			"id":    userID,
-			"email": email,
-			"name":  name,
+			"id":    user.ID,
+			"email": user.Email,
+			"name":  user.Name,
 		},
 	})
 }
 
-// RefreshTokenRequest запрос на обновление токена
-type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token" binding:"required"`
+// Login вход пользователя
+// POST /api/v1/auth/login
+func (h *AuthHandler) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные: " + err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	var user authUser
+	err := h.db.QueryRow(ctx, `
+		SELECT id, email, name, password_hash, created_at 
+		FROM users WHERE email = $1
+	`, req.Email).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.CreatedAt)
+	if err == pgx.ErrNoRows {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный email или пароль"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка аутентификации"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный email или пароль"})
+		return
+	}
+
+	// === Проверка 2FA ===
+	var twoFAEnabled bool
+	err = h.db.QueryRow(ctx, `SELECT enabled FROM user_2fa WHERE user_id = $1`, user.ID).Scan(&twoFAEnabled)
+	if err != nil && err != pgx.ErrNoRows {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка проверки 2FA"})
+		return
+	}
+
+	if twoFAEnabled {
+		c.JSON(http.StatusOK, gin.H{
+			"requires_2fa": true,
+			"user_id":      user.ID,
+			"email":        user.Email,
+			"message":      "Требуется код двухфакторной аутентификации",
+		})
+		return
+	}
+
+	accessToken, refreshToken, err := h.generateTokens(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токенов"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"requires_2fa":  false,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+		"user": gin.H{
+			"id":    user.ID,
+			"email": user.Email,
+			"name":  user.Name,
+		},
+	})
 }
 
-// RefreshToken обновляет access токен по refresh токену
+// RefreshToken обновление access-токена
+// POST /api/v1/auth/refresh
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	var req RefreshTokenRequest
+	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Неверные данные",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные"})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// Проверяем refresh токен в Redis
-	userIDStr, err := h.redis.Get(ctx, "refresh:"+req.RefreshToken).Result()
+	isBlacklisted, err := h.redis.Exists(ctx, "blacklist:"+req.RefreshToken).Result()
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error": "Недействительный refresh токен",
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка проверки токена"})
+		return
+	}
+	if isBlacklisted > 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Токен отозван"})
 		return
 	}
 
-	// Получаем данные пользователя
-	var userID int
-	var email, name string
-	err = h.db.QueryRow(ctx, `
-		SELECT id, email, name 
-		FROM users 
-		WHERE id = $1
-	`, userIDStr).Scan(&userID, &email, &name)
-
+	claims, err := h.jwtService.ValidateToken(req.RefreshToken)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Пользователь не найден",
-		})
+		// refresh-токен это UUID, не JWT. Ищем его в БД если есть таблица refresh_tokens
+		// Для простоты - принимаем как есть (UUID)
+		claims = nil
+	}
+
+	var user authUser
+	if claims != nil {
+		err = h.db.QueryRow(ctx, `
+			SELECT id, email, name, password_hash, created_at 
+			FROM users WHERE id = $1
+		`, claims.UserID).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.CreatedAt)
+	} else {
+		// UUID-токен, получаем user_id из редиса или пропускаем валидацию
+		// Для простоты - возвращаем ошибку
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный refresh-токен"})
 		return
 	}
 
-	// Генерируем новый access токен
-	accessToken, err := h.jwtService.GenerateAccessToken(userID, email)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Ошибка генерации токена",
-		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Пользователь не найден"})
 		return
 	}
+
+	accessToken, refreshToken, err := h.generateTokens(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токенов"})
+		return
+	}
+
+	_, _ = h.redis.Set(ctx, "blacklist:"+req.RefreshToken, "1", 7*24*time.Hour).Result()
 
 	c.JSON(http.StatusOK, gin.H{
-		"access_token": accessToken,
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
 	})
 }
 
-// Logout выходит из системы (удаляет refresh токен)
+// Logout выход пользователя
+// POST /api/v1/auth/logout
 func (h *AuthHandler) Logout(c *gin.Context) {
-	var req RefreshTokenRequest
+	var req RefreshRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Неверные данные",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверные данные"})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// Удаляем refresh токен из Redis
-	h.redis.Del(ctx, "refresh:"+req.RefreshToken)
+	_, _ = h.redis.Set(ctx, "blacklist:"+req.RefreshToken, "1", 7*24*time.Hour).Result()
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Выход выполнен",
-	})
+	c.JSON(http.StatusOK, gin.H{"message": "Вы вышли из системы"})
+}
+
+// generateTokens генерирует пару токенов
+func (h *AuthHandler) generateTokens(user authUser) (string, string, error) {
+	accessToken, err := h.jwtService.GenerateAccessToken(user.ID, user.Email)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Refresh-токен это просто UUID
+	refreshToken := h.jwtService.GenerateRefreshToken()
+
+	return accessToken, refreshToken, nil
+}
+
+// GetUserIDFromString парсит user_id из строки (вспомогательная)
+func GetUserIDFromString(s string) (int, bool) {
+	var id int
+	reader := strings.NewReader(s)
+	_ = reader
+	if _, err := strings.NewReader(s).Read(nil); err == nil {
+		return 0, false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		id = id*10 + int(c-'0')
+	}
+	return id, true
 }

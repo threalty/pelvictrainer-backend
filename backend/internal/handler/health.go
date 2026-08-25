@@ -1,39 +1,52 @@
 package handler
 
 import (
-	"context"
 	"net/http"
-	"runtime"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/email"
 	"pelvictrainer/backend/internal/middleware"
 )
 
+// Глобальный пул соединений с БД (устанавливается из main.go через SetDBPool)
 var dbPool *pgxpool.Pool
 
-// SetDBPool устанавливает пул подключений к БД
+// SetDBPool устанавливает глобальный пул БД
 func SetDBPool(pool *pgxpool.Pool) {
 	dbPool = pool
 }
 
-// SetupRouter создаёт и настраивает роутер Gin
-func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService, emailSender *email.Sender, appBaseURL string) *gin.Engine {
+// GetDBPool возвращает глобальный пул БД
+func GetDBPool() *pgxpool.Pool {
+	return dbPool
+}
+
+// SetupRouter настраивает все роуты приложения
+func SetupRouter(
+	authHandler *AuthHandler,
+	jwtService *auth.JWTService,
+	emailSender *email.Sender,
+	appBaseURL string,
+) *gin.Engine {
 	router := gin.Default()
-	router.Use(corsMiddleware())
 
+	// Health checks (публичные)
 	router.GET("/health", healthCheck)
-	router.GET("/ready", readinessCheck)
+	router.GET("/ready", readinessCheck(dbPool, authHandler.redis))
+	router.GET("/api/health", healthCheck)
+	router.GET("/api/ready", readinessCheck(dbPool, authHandler.redis))
 
+	// API v1
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/ping", pingHandler)
 
-		// Аутентификация (публичные)
+		// Auth endpoints (публичные)
 		authGroup := v1.Group("/auth")
 		authGroup.Use(middleware.RateLimitMiddleware(20, time.Minute))
 		{
@@ -41,77 +54,94 @@ func SetupRouter(authHandler *AuthHandler, jwtService *auth.JWTService, emailSen
 			authGroup.POST("/login", authHandler.Login)
 			authGroup.POST("/refresh", authHandler.RefreshToken)
 			authGroup.POST("/logout", authHandler.Logout)
-		}
 
-		// Восстановление пароля (публичные, но с отдельным лимитом)
-		recoveryGroup := v1.Group("/auth")
-		recoveryGroup.Use(middleware.RateLimitMiddleware(5, time.Minute))
-		{
+			// Восстановление пароля
 			recoveryHandler := NewAuthRecoveryHandler(dbPool, emailSender, appBaseURL)
-			recoveryGroup.POST("/forgot-password", recoveryHandler.ForgotPassword)
-			recoveryGroup.POST("/reset-password", recoveryHandler.ResetPassword)
-			recoveryGroup.POST("/check-token", recoveryHandler.CheckToken)
+			authGroup.POST("/forgot-password", recoveryHandler.ForgotPassword)
+			authGroup.POST("/reset-password", recoveryHandler.ResetPassword)
+			authGroup.POST("/check-token", recoveryHandler.CheckToken)
 		}
 
-		// Защищённые endpoints
-		protected := v1.Group("/")
+		// Публичные эндпоинты 2FA (для проверки кода при логине)
+		twoFactorAuth := v1.Group("/2fa")
+		twoFactorAuth.Use(middleware.RateLimitMiddleware(10, time.Minute))
+		{
+			twoFactorHandler := NewTwoAuthHandler(dbPool)
+			twoFactorAuth.POST("/verify-login", twoFactorHandler.VerifyForLogin)
+			twoFactorAuth.POST("/verify-backup", twoFactorHandler.VerifyBackupCode)
+		}
+
+		// Защищённые эндпоинты (требуют авторизации)
+		protected := v1.Group("")
 		protected.Use(middleware.AuthMiddleware(jwtService))
 		{
-			// Пользователи
+			// Пользователи (админы)
 			userHandler := NewUserHandler(dbPool)
 			protected.GET("/users", userHandler.GetUsers)
 			protected.GET("/users/:id", userHandler.GetUserDetail)
 			protected.GET("/users/:id/sessions", userHandler.GetUserSessions)
 			protected.POST("/users", userHandler.CreateUser)
 
-			// Подписки
+			// Подписки (админы)
 			subHandler := NewSubscriptionHandler(dbPool)
 			protected.GET("/subscriptions", subHandler.GetSubscriptions)
 			protected.GET("/users/:id/subscription", subHandler.GetUserSubscription)
 			protected.POST("/users/:id/subscription", subHandler.ActivateSubscription)
 			protected.DELETE("/subscriptions/:id", subHandler.CancelSubscription)
 
-			// Аналитика
+			// Аналитика (админы)
 			analyticsHandler := NewAnalyticsHandler(dbPool)
 			protected.GET("/analytics/overview", analyticsHandler.Overview)
 			protected.GET("/analytics/registrations", analyticsHandler.RegistrationsByDay)
 			protected.GET("/analytics/subscriptions", analyticsHandler.SubscriptionBreakdown)
 			protected.GET("/analytics/cohorts", analyticsHandler.CohortAnalysis)
 
-			// Платежи
+			// Платежи (админы)
 			paymentsHandler := NewPaymentsHandler(dbPool, emailSender)
-			protected.POST("/payments/create", paymentsHandler.CreatePayment)
-			protected.GET("/me/payments", paymentsHandler.GetMyPayments)
 			protected.GET("/payments", paymentsHandler.AdminGetPayments)
 			protected.GET("/revenue", paymentsHandler.AdminGetRevenue)
 
-			// Рассылки (админ)
+			// Рассылки (админы)
 			broadcastHandler := NewBroadcastHandler(dbPool, emailSender)
 			protected.GET("/broadcasts", broadcastHandler.AdminGetBroadcasts)
 			protected.POST("/broadcasts", broadcastHandler.AdminCreateBroadcast)
 			protected.POST("/broadcasts/:id/send", broadcastHandler.AdminSendBroadcast)
 
-			// Мобильное приложение
+			// 2FA (настройка - защищённые)
+			twoAuthHandler := NewTwoAuthHandler(dbPool)
+			protected.GET("/2fa/status", twoAuthHandler.GetStatus)
+			protected.POST("/2fa/setup", twoAuthHandler.GenerateSetup)
+			protected.POST("/2fa/verify-setup", twoAuthHandler.VerifySetup)
+			protected.POST("/2fa/disable", twoAuthHandler.Disable)
+			protected.POST("/2fa/regenerate-backup", twoAuthHandler.RegenerateBackupCodes)
+		}
+
+		// Мобильное приложение (для обычных пользователей)
+		mobile := v1.Group("")
+		mobile.Use(middleware.AuthMiddleware(jwtService))
+		mobile.Use(middleware.RateLimitMiddleware(120, time.Minute))
+		{
 			mobileHandler := NewMobileHandler(dbPool)
-			mobile := v1.Group("/")
-			mobile.Use(middleware.AuthMiddleware(jwtService))
-			mobile.Use(middleware.RateLimitMiddleware(120, time.Minute))
-			{
-				mobile.GET("/presets", mobileHandler.GetPresets)
-				mobile.POST("/sessions", mobileHandler.LogSession)
-				mobile.GET("/me/sessions", mobileHandler.GetMySessions)
-				mobile.GET("/me/stats", mobileHandler.GetMyStats)
-				mobile.GET("/me/subscription", mobileHandler.GetMySubscription)
-				mobile.POST("/devices", mobileHandler.RegisterDevice)
-				mobile.DELETE("/devices", mobileHandler.UnregisterDevice)
-			}
+			mobile.GET("/presets", mobileHandler.GetPresets)
+			mobile.POST("/sessions", mobileHandler.LogSession)
+			mobile.GET("/me/sessions", mobileHandler.GetMySessions)
+			mobile.GET("/me/stats", mobileHandler.GetMyStats)
+			mobile.GET("/me/subscription", func(c *gin.Context) {
+				subHandler := NewSubscriptionHandler(dbPool)
+				subHandler.GetUserSubscription(c)
+			})
+			mobile.POST("/devices", mobileHandler.RegisterDevice)
+			mobile.DELETE("/devices", mobileHandler.UnregisterDevice)
+
+			paymentsHandler := NewPaymentsHandler(dbPool, emailSender)
+			mobile.POST("/payments/create", paymentsHandler.CreatePayment)
+			mobile.GET("/me/payments", paymentsHandler.GetMyPayments)
 		}
 	}
 
 	return router
 }
 
-// healthCheck - базовая проверка что сервер жив
 func healthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "ok",
@@ -121,54 +151,40 @@ func healthCheck(c *gin.Context) {
 	})
 }
 
-// readinessCheck - проверка что сервер готов принимать запросы
-func readinessCheck(c *gin.Context) {
-	if dbPool == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "not_ready",
-			"error":  "БД не подключена",
-		})
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-	defer cancel()
-
-	if err := dbPool.Ping(ctx); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status": "not_ready",
-			"error":  "БД недоступна",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":     "ready",
-		"service":    "pelvictrainer-api",
-		"go_version": runtime.Version(),
-		"db_status":  "connected",
-	})
-}
-
-// pingHandler - простой тестовый эндпоинт
-func pingHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"message": "pong from PelvicTrainer API",
-	})
-}
-
-// corsMiddleware настраивает CORS для admin UI
-func corsMiddleware() gin.HandlerFunc {
+func readinessCheck(pool *pgxpool.Pool, redisClient *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+		ctx := c.Request.Context()
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
+		if pool != nil {
+			if err := pool.Ping(ctx); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"status": "not_ready",
+					"error":  "PostgreSQL недоступен",
+				})
+				return
+			}
 		}
 
-		c.Next()
+		if redisClient != nil {
+			if err := redisClient.Ping(ctx).Err(); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"status": "not_ready",
+					"error":  "Redis недоступен",
+				})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ready",
+			"time":   time.Now().UTC().Format(time.RFC3339),
+		})
 	}
+}
+
+func pingHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"message": "pong",
+		"time":    time.Now().UTC().Format(time.RFC3339),
+	})
 }
