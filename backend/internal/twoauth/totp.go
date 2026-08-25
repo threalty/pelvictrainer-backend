@@ -14,22 +14,22 @@ import (
 const (
 	// Issuer - название приложения, которое будет показано в Google Authenticator / Яндекс.Ключ
 	Issuer = "PelvicTrainer"
-	
+
 	// BackupCodesCount - количество одноразовых кодов восстановления
 	BackupCodesCount = 10
-	
+
 	// BackupCodeLength - длина каждого кода восстановления
 	BackupCodeLength = 8
 )
 
 // GenerateSecret генерирует новый TOTP-секрет (32 символа Base32)
 func GenerateSecret() (string, error) {
+	// Используем минимальные параметры - всё остальное возьмёт значения по умолчанию
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      Issuer,
-		AccountName: "", // будет заполнен при вызове GenerateOTPAuthURL
-		Period:      30, // стандартный период 30 секунд
-		Digits:      otp.DigitsSix, // 6 цифр
-		Algorithm:   otp.AlgorithmSHA1, // стандартный алгоритм
+		AccountName: "user@pelvictrainer.ru",
+		Period:      30,
+		SecretSize:  20,
 	})
 	if err != nil {
 		return "", fmt.Errorf("ошибка генерации секрета: %w", err)
@@ -66,7 +66,7 @@ func ValidateCodeWithWindow(secret, code string) bool {
 		Digits:    otp.DigitsSix,     // 6 цифр
 		Algorithm: otp.AlgorithmSHA1, // стандартный алгоритм
 	}
-	
+
 	valid, err := totp.ValidateCustom(code, secret, time.Now(), opts)
 	if err != nil {
 		return false
@@ -78,7 +78,7 @@ func ValidateCodeWithWindow(secret, code string) bool {
 // Коды в формате XXXX-XXXX (легко записать)
 func GenerateBackupCodes() ([]string, error) {
 	codes := make([]string, BackupCodesCount)
-	
+
 	for i := 0; i < BackupCodesCount; i++ {
 		code, err := generateRandomCode(BackupCodeLength)
 		if err != nil {
@@ -87,7 +87,7 @@ func GenerateBackupCodes() ([]string, error) {
 		// Форматируем как XXXX-XXXX для удобства
 		codes[i] = fmt.Sprintf("%s-%s", code[:4], code[4:])
 	}
-	
+
 	return codes, nil
 }
 
@@ -96,7 +96,7 @@ func GenerateBackupCodes() ([]string, error) {
 func generateRandomCode(length int) (string, error) {
 	// Алфавит без похожих символов: нет 0, O, 1, I, L
 	const charset = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-	
+
 	code := make([]byte, length)
 	for i := range code {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
@@ -105,7 +105,7 @@ func generateRandomCode(length int) (string, error) {
 		}
 		code[i] = charset[n.Int64()]
 	}
-	
+
 	return string(code), nil
 }
 
