@@ -1,107 +1,99 @@
 import { useEffect, useState } from 'react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { getSubscriptionBreakdown, type SubscriptionBreakdown } from '../lib/api';
 
 interface Props {
   token: string;
 }
 
-const COLORS: Record<string, string> = {
-  free: '#4b5563',
-  monthly: '#3b82f6',
-  yearly: '#a855f7',
-  lifetime: '#eab308',
-};
-
-const LABELS: Record<string, string> = {
-  free: 'Free',
-  monthly: 'Месяц',
-  yearly: 'Год',
-  lifetime: 'Lifetime',
-};
+const COLORS = ['#8B1538', '#cf2d5d', '#ee7798', '#6B7280'];
 
 export default function SubscriptionsChart({ token }: Props) {
   const [data, setData] = useState<SubscriptionBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const result = await getSubscriptionBreakdown(token);
+        setData(result);
+      } catch (err) {
+        setError('Не удалось загрузить данные');
+      } finally {
+        setLoading(false);
+      }
+    };
     loadData();
   }, [token]);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      setData(await getSubscriptionBreakdown(token));
-    } catch (err) {
-      console.error('Ошибка:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading || !data) {
+  if (loading) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-80 flex items-center justify-center text-gray-400">
-        Загрузка...
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-80 flex items-center justify-center">
+        <div className="text-gray-400">Загрузка...</div>
       </div>
     );
   }
 
-  const chartData = [
-    { name: 'free', value: data.free.count },
-    ...data.active.map((p) => ({ name: p.plan, value: p.count })),
-  ].filter((d) => d.value > 0);
-
-  const total = chartData.reduce((sum, d) => sum + d.value, 0);
-
-  if (total === 0) {
+  if (error) {
     return (
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-80 flex items-center justify-center text-gray-400">
-        Пока нет пользователей
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-80 flex items-center justify-center">
+        <div className="text-red-400">❌ {error}</div>
+      </div>
+    );
+  }
+
+  const activePlans = Array.isArray(data?.active) ? data.active : [];
+  const freeCount = data?.free?.count ?? 0;
+  
+  const chartData = [
+    ...activePlans.map(p => ({ 
+      name: `${p.plan} (${p.count})`, 
+      value: p.count 
+    })),
+    ...(freeCount > 0 ? [{ name: `Free (${freeCount})`, value: freeCount }] : [])
+  ];
+
+  if (chartData.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 h-80 flex items-center justify-center">
+        <div className="text-gray-400">Нет данных о подписках</div>
       </div>
     );
   }
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-      <h3 className="text-lg font-semibold text-white mb-1">💎 Подписки</h3>
-      <p className="text-sm text-gray-400 mb-4">Распределение · всего {total}</p>
-
-      <ResponsiveContainer width="100%" height={240}>
+      <h3 className="text-lg font-semibold text-white mb-4">
+        💎 Структура подписок
+      </h3>
+      <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie
             data={chartData}
             cx="50%"
             cy="50%"
-            innerRadius={50}
-            outerRadius={85}
-            paddingAngle={2}
+            labelLine={false}
+            outerRadius={80}
+            fill="#8884d8"
             dataKey="value"
           >
-            {chartData.map((entry, i) => (
-              <Cell key={i} fill={COLORS[entry.name] || '#6b7280'} />
+            {chartData.map((_entry, index) => (
+              // ИСПРАВЛЕНО: используем _entry (подчёркивание) вместо entry
+              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip
-            contentStyle={{
-              backgroundColor: '#111827',
+          <Tooltip 
+            contentStyle={{ 
+              backgroundColor: '#1F2937', 
               border: '1px solid #374151',
               borderRadius: '8px',
-            }}
-            formatter={(value: any, name: any) => {
-              const val = Number(value);
-              const nameStr = String(name);
-              const percent = ((val / total) * 100).toFixed(1);
-              return [
-                `${val} (${percent}%)`,
-                LABELS[nameStr] || nameStr,
-              ];
+              color: '#fff'
             }}
           />
-          <Legend
-            formatter={(value: any) => (
-              <span className="text-gray-300 text-sm">{LABELS[String(value)] || String(value)}</span>
-            )}
+          <Legend 
+            wrapperStyle={{ color: '#fff' }}
           />
         </PieChart>
       </ResponsiveContainer>

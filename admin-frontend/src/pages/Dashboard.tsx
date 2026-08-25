@@ -163,7 +163,7 @@ export default function Dashboard({ token, onLogout }: Props) {
           <MetricCard
             icon="💰"
             label="MRR"
-            value={overview ? `${Math.round(overview.mrr_rub).toLocaleString('ru-RU')} ₽` : '—'}
+            value={overview?.mrr_rub ? `${Math.round(overview.mrr_rub).toLocaleString('ru-RU')} ₽` : '—'}
             sub="мес. регулярный доход"
             accent="text-green-400"
           />
@@ -177,7 +177,7 @@ export default function Dashboard({ token, onLogout }: Props) {
             icon="💎"
             label="Платящих"
             value={overview?.active_subs ?? '—'}
-            sub={`конверсия ${overview?.conversion_rate.toFixed(1) ?? 0}%`}
+            sub={`конверсия ${(overview?.conversion_rate ?? 0).toFixed(1)}%`}
             accent="text-red-400"
           />
           <MetricCard

@@ -83,14 +83,33 @@ export async function getUsers(token: string): Promise<User[]> {
   const res = await authFetch(`${API_URL}/api/v1/users`, token);
   if (!res.ok) throw new Error('Ошибка загрузки');
   const data = await res.json();
-  return data.users || [];
+  return Array.isArray(data?.users) ? data.users : 
+         Array.isArray(data) ? data : [];
 }
 
 export async function getSubscriptions(token: string): Promise<Subscription[]> {
   const res = await authFetch(`${API_URL}/api/v1/subscriptions`, token);
   if (!res.ok) throw new Error('Ошибка загрузки');
   const data = await res.json();
-  return data.subscriptions || [];
+  return Array.isArray(data?.subscriptions) ? data.subscriptions :
+         Array.isArray(data) ? data : [];
+}
+
+export async function getOverview(token: string): Promise<Overview> {
+  const res = await authFetch(`${API_URL}/api/v1/analytics/overview`, token);
+  if (!res.ok) throw new Error('Ошибка загрузки');
+  const data = await res.json();
+  // Заполняем значения по умолчанию если что-то null
+  return {
+    total_users: data?.total_users ?? 0,
+    new_users_7d: data?.new_users_7d ?? 0,
+    new_users_30d: data?.new_users_30d ?? 0,
+    active_subs: data?.active_subs ?? 0,
+    mrr_rub: data?.mrr_rub ?? 0,
+    conversion_rate: data?.conversion_rate ?? 0,
+    dau: data?.dau ?? 0,
+    wau: data?.wau ?? 0,
+  };
 }
 
 export async function activateSubscription(
@@ -111,12 +130,6 @@ export async function cancelSubscription(token: string, subscriptionId: number) 
     method: 'DELETE',
   });
   if (!res.ok) throw new Error('Ошибка отмены');
-}
-
-export async function getOverview(token: string): Promise<Overview> {
-  const res = await authFetch(`${API_URL}/api/v1/analytics/overview`, token);
-  if (!res.ok) throw new Error('Ошибка загрузки');
-  return res.json();
 }
 
 export async function getRegistrationsByDay(token: string, days: number = 30): Promise<DayCount[]> {
