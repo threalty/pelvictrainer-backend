@@ -66,7 +66,7 @@ func SetupRouter(
 		twoFactorAuth := v1.Group("/2fa")
 		twoFactorAuth.Use(middleware.RateLimitMiddleware(10, time.Minute))
 		{
-			twoFactorHandler := NewTwoAuthHandler(dbPool)
+			twoFactorHandler := NewTwoAuthHandler(dbPool, jwtService)
 			twoFactorAuth.POST("/verify-login", twoFactorHandler.VerifyForLogin)
 			twoFactorAuth.POST("/verify-backup", twoFactorHandler.VerifyBackupCode)
 		}
@@ -108,7 +108,7 @@ func SetupRouter(
 			protected.POST("/broadcasts/:id/send", broadcastHandler.AdminSendBroadcast)
 
 			// 2FA (настройка - защищённые)
-			twoAuthHandler := NewTwoAuthHandler(dbPool)
+			twoAuthHandler := NewTwoAuthHandler(dbPool, jwtService)
 			protected.GET("/2fa/status", twoAuthHandler.GetStatus)
 			protected.POST("/2fa/setup", twoAuthHandler.GenerateSetup)
 			protected.POST("/2fa/verify-setup", twoAuthHandler.VerifySetup)

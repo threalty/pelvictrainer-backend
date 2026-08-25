@@ -12,17 +12,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"pelvictrainer/backend/internal/auth"
 	"pelvictrainer/backend/internal/twoauth"
 )
 
 // TwoAuthHandler обработчики для двухфакторной аутентификации
 type TwoAuthHandler struct {
-	db *pgxpool.Pool
+	db         *pgxpool.Pool
+	jwtService *auth.JWTService
 }
 
 // NewTwoAuthHandler создаёт обработчик 2FA
-func NewTwoAuthHandler(db *pgxpool.Pool) *TwoAuthHandler {
-	return &TwoAuthHandler{db: db}
+func NewTwoAuthHandler(db *pgxpool.Pool, jwtService *auth.JWTService) *TwoAuthHandler {
+	return &TwoAuthHandler{db: db, jwtService: jwtService}
 }
 
 // SetupResponse ответ на запрос настройки 2FA
@@ -247,7 +249,7 @@ func (h *TwoAuthHandler) Disable(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "2FA отключена"})
 }
 
-// VerifyForLogin проверяет код при логине (публичный эндпоинт)
+// VerifyForLogin проверяет код при логине и выдаёт токены
 // POST /api/v1/2fa/verify-login
 func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 	var req VerifyLoginRequest
@@ -275,6 +277,7 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 		return
 	}
 
+	// Получаем данные пользователя
 	var email, name string
 	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, '') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name)
 	if err != nil {
@@ -282,8 +285,20 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 		return
 	}
 
+	// Генерируем access-токен
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
+		return
+	}
+
+	// Генерируем refresh-токен (UUID)
+	refreshToken := h.jwtService.GenerateRefreshToken()
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "2FA пройдена",
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
 		"user_id":       req.UserID,
 		"email":         email,
 		"name":          name,
@@ -291,7 +306,7 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 	})
 }
 
-// VerifyBackupCode использует backup-код (публичный эндпоинт)
+// VerifyBackupCode использует backup-код и выдаёт токены
 // POST /api/v1/2fa/verify-backup
 func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 	var req VerifyBackupRequest
@@ -335,6 +350,7 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 		return
 	}
 
+	// Обновляем список (удаляем использованный)
 	_, err = h.db.Exec(ctx, `
 		UPDATE user_2fa 
 		SET backup_codes = $2, updated_at = NOW()
@@ -345,8 +361,29 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 		return
 	}
 
+	// Получаем данные пользователя
+	var email, name string
+	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, '') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
+		return
+	}
+
+	// Генерируем токены
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
+		return
+	}
+	refreshToken := h.jwtService.GenerateRefreshToken()
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":                "Backup-код использован",
+		"access_token":           accessToken,
+		"refresh_token":          refreshToken,
+		"user_id":                req.UserID,
+		"email":                  email,
+		"name":                   name,
 		"remaining_backup_codes": len(remainingCodes),
 		"authenticated":          true,
 	})
