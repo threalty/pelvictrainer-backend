@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # Собираем бинарник
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o main ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -p 2 -ldflags="-w -s" -o main ./cmd/api
 
 # Stage 2: Финальный образ
 FROM alpine:latest
