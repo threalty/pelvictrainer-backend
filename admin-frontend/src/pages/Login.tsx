@@ -26,11 +26,13 @@ export default function Login({ onLogin }: Props) {
     try {
       const data = await login(email, password);
 
+      // === Проверяем требуется ли 2FA ===
       if (data.requires_2fa && data.user_id) {
         setRequires2FA(true);
         setUserId2FA(data.user_id);
         setEmail2FA(data.email || email);
       } else if (data.access_token && data.refresh_token) {
+        // Обычный логин успешен
         onLogin(data.access_token, data.refresh_token);
       } else {
         throw new Error('Не удалось получить токены');

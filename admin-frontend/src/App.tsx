@@ -3,11 +3,12 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 
 export default function App() {
-  const [token, setToken] = useState<string | null>(
-    localStorage.getItem('access_token')
-  );
+  const [token, setToken] = useState<string | null>(() => {
+    const stored = localStorage.getItem('access_token');
+    // Возвращаем null если токен пустой или 'undefined'
+    return stored && stored !== 'undefined' && stored !== 'null' ? stored : null;
+  });
 
-  // Слушаем событие "unauthorized" от authFetch
   useEffect(() => {
     const handleUnauthorized = () => {
       localStorage.removeItem('access_token');
@@ -20,6 +21,11 @@ export default function App() {
   }, []);
 
   const handleLogin = (accessToken: string, refreshToken: string) => {
+    // Защита от undefined/null токенов
+    if (!accessToken || accessToken === 'undefined' || accessToken === 'null') {
+      console.error('Invalid access token received');
+      return;
+    }
     localStorage.setItem('access_token', accessToken);
     localStorage.setItem('refresh_token', refreshToken);
     setToken(accessToken);
