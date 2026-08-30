@@ -1,9 +1,24 @@
 const API_URL = '';
 
 export interface LoginResponse {
+  access_token?: string;
+  refresh_token?: string;
+  user?: { id: number; email: string; name: string };
+  // === 2FA поля ===
+  requires_2fa?: boolean;
+  user_id?: number;
+  email?: string;
+  message?: string;
+}
+
+export interface TwoFAVerifyResponse {
+  message?: string;
   access_token: string;
   refresh_token: string;
-  user: { id: number; email: string; name: string };
+  user_id: number;
+  email: string;
+  name?: string;
+  authenticated: boolean;
 }
 
 export interface User {
@@ -62,7 +77,11 @@ const authFetch = async (url: string, token: string, options: RequestInit = {}) 
       ...(options.headers || {}),
     },
   });
-  if (res.status === 401) throw new Error('UNAUTHORIZED');
+  if (res.status === 401) {
+    // Отправляем событие чтобы App.tsx очистил токен и показал логин
+    window.dispatchEvent(new Event('unauthorized'));
+    throw new Error('UNAUTHORIZED');
+  }
   return res;
 };
 
@@ -75,6 +94,33 @@ export async function login(email: string, password: string): Promise<LoginRespo
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Ошибка входа' }));
     throw new Error(err.error || 'Ошибка входа');
+  }
+  return res.json();
+}
+
+// === НОВОЕ: Подтверждение 2FA ===
+export async function verify2FA(userId: number, code: string): Promise<TwoFAVerifyResponse> {
+  const res = await fetch(`${API_URL}/api/v1/2fa/verify-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, code }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Неверный код' }));
+    throw new Error(err.error || 'Неверный код');
+  }
+  return res.json();
+}
+
+export async function verify2FABackup(userId: number, code: string): Promise<TwoFAVerifyResponse> {
+  const res = await fetch(`${API_URL}/api/v1/2fa/verify-backup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, code }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Неверный backup-код' }));
+    throw new Error(err.error || 'Неверный backup-код');
   }
   return res.json();
 }
@@ -99,7 +145,6 @@ export async function getOverview(token: string): Promise<Overview> {
   const res = await authFetch(`${API_URL}/api/v1/analytics/overview`, token);
   if (!res.ok) throw new Error('Ошибка загрузки');
   const data = await res.json();
-  // Заполняем значения по умолчанию если что-то null
   return {
     total_users: data?.total_users ?? 0,
     new_users_7d: data?.new_users_7d ?? 0,
