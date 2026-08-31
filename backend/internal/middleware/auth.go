@@ -47,6 +47,7 @@ func AuthMiddleware(jwtService *auth.JWTService) gin.HandlerFunc {
 		// Сохраняем данные пользователя в контекст
 		c.Set("user_id", claims.UserID)
 		c.Set("user_email", claims.Email)
+		c.Set("user_role", claims.Role) // НОВОЕ: добавляем роль
 
 		c.Next()
 	}

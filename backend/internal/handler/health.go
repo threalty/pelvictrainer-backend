@@ -114,6 +114,18 @@ func SetupRouter(
 			protected.POST("/2fa/verify-setup", twoAuthHandler.VerifySetup)
 			protected.POST("/2fa/disable", twoAuthHandler.Disable)
 			protected.POST("/2fa/regenerate-backup", twoAuthHandler.RegenerateBackupCodes)
+
+			// === Админские эндпоинты для управления 2FA ===
+			adminTwoAuthHandler := NewAdminTwoAuthHandler(dbPool)
+			
+			// Группа роутов только для админов
+			admin := protected.Group("/admin")
+			admin.Use(middleware.AdminMiddleware())
+			{
+				admin.GET("/users/:id/2fa-status", adminTwoAuthHandler.GetUser2FAStatus)
+				admin.POST("/users/:id/disable-2fa", adminTwoAuthHandler.DisableUser2FA)
+				admin.GET("/users-with-2fa", adminTwoAuthHandler.ListUsersWith2FAStatus)
+			}
 		}
 
 		// Мобильное приложение (для обычных пользователей)

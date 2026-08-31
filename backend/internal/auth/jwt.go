@@ -13,6 +13,7 @@ import (
 type JWTClaims struct {
 	UserID int    `json:"user_id"`
 	Email  string `json:"email"`
+	Role   string `json:"role"` // НОВОЕ: роль пользователя
 	jwt.RegisteredClaims
 }
 
@@ -31,10 +32,11 @@ func NewJWTService(secretKey string) *JWTService {
 }
 
 // GenerateAccessToken создаёт access токен
-func (s *JWTService) GenerateAccessToken(userID int, email string) (string, error) {
+func (s *JWTService) GenerateAccessToken(userID int, email string, role string) (string, error) {
 	claims := JWTClaims{
 		UserID: userID,
 		Email:  email,
+		Role:   role, // НОВОЕ: добавляем роль
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenTTL)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

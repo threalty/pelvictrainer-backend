@@ -66,6 +66,7 @@ type authUser struct {
 	Email        string
 	Name         string
 	PasswordHash string
+	Role         string // НОВОЕ: роль пользователя
 	CreatedAt    time.Time
 }
 
@@ -109,8 +110,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	err = h.db.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, name, created_at, updated_at)
 		VALUES ($1, $2, $3, NOW(), NOW())
-		RETURNING id, email, name, created_at
-	`, req.Email, string(hashedPassword), req.Name).Scan(&user.ID, &user.Email, &user.Name, &user.CreatedAt)
+		RETURNING id, email, name, COALESCE(role, 'user'), created_at
+	`, req.Email, string(hashedPassword), req.Name).Scan(&user.ID, &user.Email, &user.Name, &user.Role, &user.CreatedAt)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка создания пользователя"})
 		return
@@ -138,6 +139,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 			"id":    user.ID,
 			"email": user.Email,
 			"name":  user.Name,
+			"role":  user.Role,
 		},
 	})
 }
@@ -156,9 +158,9 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	var user authUser
 	err := h.db.QueryRow(ctx, `
-		SELECT id, email, name, password_hash, created_at 
+		SELECT id, email, name, password_hash, COALESCE(role, 'user'), created_at 
 		FROM users WHERE email = $1
-	`, req.Email).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.CreatedAt)
+	`, req.Email).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	if err == pgx.ErrNoRows {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Неверный email или пароль"})
 		return
@@ -186,6 +188,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			"requires_2fa": true,
 			"user_id":      user.ID,
 			"email":        user.Email,
+			"role":         user.Role,
 			"message":      "Требуется код двухфакторной аутентификации",
 		})
 		return
@@ -205,6 +208,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			"id":    user.ID,
 			"email": user.Email,
 			"name":  user.Name,
+			"role":  user.Role,
 		},
 	})
 }
@@ -241,9 +245,9 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var user authUser
 	if claims != nil {
 		err = h.db.QueryRow(ctx, `
-			SELECT id, email, name, password_hash, created_at 
+			SELECT id, email, name, password_hash, COALESCE(role, 'user'), created_at 
 			FROM users WHERE id = $1
-		`, claims.UserID).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.CreatedAt)
+		`, claims.UserID).Scan(&user.ID, &user.Email, &user.Name, &user.PasswordHash, &user.Role, &user.CreatedAt)
 	} else {
 		// UUID-токен, получаем user_id из редиса или пропускаем валидацию
 		// Для простоты - возвращаем ошибку
@@ -289,7 +293,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 // generateTokens генерирует пару токенов
 func (h *AuthHandler) generateTokens(user authUser) (string, string, error) {
-	accessToken, err := h.jwtService.GenerateAccessToken(user.ID, user.Email)
+	accessToken, err := h.jwtService.GenerateAccessToken(user.ID, user.Email, user.Role)
 	if err != nil {
 		return "", "", err
 	}

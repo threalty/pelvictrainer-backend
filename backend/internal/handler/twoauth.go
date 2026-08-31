@@ -277,16 +277,16 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 		return
 	}
 
-	// Получаем данные пользователя
-	var email, name string
-	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, '') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name)
+	// Получаем данные пользователя включая роль
+	var email, name, role string
+	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name, &role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
 		return
 	}
 
-	// Генерируем access-токен
-	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email)
+	// Генерируем access-токен с ролью
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
 		return
@@ -302,6 +302,7 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 		"user_id":       req.UserID,
 		"email":         email,
 		"name":          name,
+		"role":          role,
 		"authenticated": true,
 	})
 }
@@ -361,16 +362,16 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 		return
 	}
 
-	// Получаем данные пользователя
-	var email, name string
-	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, '') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name)
+	// Получаем данные пользователя включая роль
+	var email, name, role string
+	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name, &role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
 		return
 	}
 
-	// Генерируем токены
-	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email)
+	// Генерируем токены с ролью
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
 		return
@@ -384,6 +385,7 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 		"user_id":                req.UserID,
 		"email":                  email,
 		"name":                   name,
+		"role":                   role,
 		"remaining_backup_codes": len(remainingCodes),
 		"authenticated":          true,
 	})
