@@ -296,6 +296,55 @@ export async function createBroadcast(
   return res.json();
 }
 
+// ============ 2FA ADMIN MANAGEMENT ============
+
+export interface User2FAStatus {
+  user_id: number;
+  email: string;
+  enabled: boolean;
+  configured: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface UserWith2FA {
+  id: number;
+  email: string;
+  name: string;
+  created_at: string;
+  two_fa_enabled: boolean;
+  two_fa_updated_at?: string;
+}
+
+export async function getUsersWith2FA(token: string): Promise<UserWith2FA[]> {
+  const res = await authFetch(`${API_URL}/api/v1/admin/users-with-2fa`, token);
+  if (!res.ok) throw new Error('Не удалось загрузить пользователей');
+  const data = await res.json();
+  return data.users || [];
+}
+
+export async function getUser2FAStatus(token: string, userId: number): Promise<User2FAStatus> {
+  const res = await authFetch(`${API_URL}/api/v1/admin/users/${userId}/2fa-status`, token);
+  if (!res.ok) throw new Error('Не удалось получить статус 2FA');
+  return res.json();
+}
+
+export async function disableUser2FA(
+  token: string,
+  userId: number,
+  reason: string
+): Promise<{ message: string; user_id: number; email: string }> {
+  const res = await authFetch(`${API_URL}/api/v1/admin/users/${userId}/disable-2fa`, token, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Ошибка отключения 2FA' }));
+    throw new Error(error.error || 'Не удалось отключить 2FA');
+  }
+  return res.json();
+}
+
 export async function sendBroadcast(
   token: string,
   broadcastId: number

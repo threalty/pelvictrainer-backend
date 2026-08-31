@@ -5,9 +5,12 @@ import {
   getOverview,
   activateSubscription,
   cancelSubscription,
+  getUsersWith2FA,
+  disableUser2FA,
   type User,
   type Subscription,
   type Overview,
+  type UserWith2FA,
 } from '../lib/api';
 import UserDetailModal from '../components/UserDetailModal';
 import RegistrationsChart from '../components/RegistrationsChart';
@@ -23,6 +26,7 @@ interface Props {
 
 export default function Dashboard({ token, onLogout }: Props) {
   const [users, setUsers] = useState<User[]>([]);
+  const [usersWith2FA, setUsersWith2FA] = useState<UserWith2FA[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,18 +39,25 @@ export default function Dashboard({ token, onLogout }: Props) {
 
   const [currentPage, setCurrentPage] = useState<'dashboard' | 'payments' | 'broadcasts'>('dashboard');
 
+  // === 2FA Disable Modal ===
+  const [disable2FAModal, setDisable2FAModal] = useState<UserWith2FA | null>(null);
+  const [disableReason, setDisableReason] = useState('');
+  const [disabling2FA, setDisabling2FA] = useState(false);
+
   const loadData = async () => {
     setLoading(true);
     setError('');
     try {
-      const [usersData, subsData, overviewData] = await Promise.all([
+      const [usersData, subsData, overviewData, usersWith2FAData] = await Promise.all([
         getUsers(token),
         getSubscriptions(token),
         getOverview(token),
+        getUsersWith2FA(token),
       ]);
       setUsers(usersData);
       setSubscriptions(subsData);
       setOverview(overviewData);
+      setUsersWith2FA(usersWith2FAData);
     } catch (err) {
       if (err instanceof Error && err.message === 'UNAUTHORIZED') {
         onLogout();
@@ -65,6 +76,11 @@ export default function Dashboard({ token, onLogout }: Props) {
   const activeSubMap = new Map<number, Subscription>();
   subscriptions.forEach((s) => {
     if (s.status === 'active') activeSubMap.set(s.user_id, s);
+  });
+
+  const twoFAMap = new Map<number, UserWith2FA>();
+  usersWith2FA.forEach((u) => {
+    twoFAMap.set(u.id, u);
   });
 
   const handleActivate = async () => {
@@ -88,6 +104,25 @@ export default function Dashboard({ token, onLogout }: Props) {
       await loadData();
     } catch (err) {
       alert('Ошибка: ' + (err instanceof Error ? err.message : 'неизвестно'));
+    }
+  };
+
+  const handleDisable2FA = async () => {
+    if (!disable2FAModal || !disableReason.trim()) {
+      alert('Укажите причину отключения 2FA');
+      return;
+    }
+
+    setDisabling2FA(true);
+    try {
+      await disableUser2FA(token, disable2FAModal.id, disableReason);
+      setDisable2FAModal(null);
+      setDisableReason('');
+      await loadData();
+    } catch (err) {
+      alert('Ошибка: ' + (err instanceof Error ? err.message : 'неизвестно'));
+    } finally {
+      setDisabling2FA(false);
     }
   };
 
@@ -150,7 +185,7 @@ export default function Dashboard({ token, onLogout }: Props) {
             </button>
             <button
               onClick={onLogout}
-              className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-2 transition-colors"
+              className="text-sm text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg px-4 py-3 transition-colors"
             >
               Выйти
             </button>
@@ -218,6 +253,7 @@ export default function Dashboard({ token, onLogout }: Props) {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">ID</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Имя</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Email</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">2FA</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Подписка</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase">Регистрация</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase">Действия</th>
@@ -226,6 +262,7 @@ export default function Dashboard({ token, onLogout }: Props) {
                 <tbody className="divide-y divide-gray-800">
                   {users.map((user) => {
                     const sub = activeSubMap.get(user.id);
+                    const twoFA = twoFAMap.get(user.id);
                     return (
                       <tr
                         key={user.id}
@@ -235,6 +272,17 @@ export default function Dashboard({ token, onLogout }: Props) {
                         <td className="px-6 py-4 text-sm text-gray-500">#{user.id}</td>
                         <td className="px-6 py-4 text-sm font-medium text-white">{user.name}</td>
                         <td className="px-6 py-4 text-sm text-gray-400">{user.email}</td>
+                        <td className="px-6 py-4 text-sm">
+                          {twoFA?.two_fa_enabled ? (
+                            <span className="text-xs px-2 py-0.5 rounded border bg-green-900/40 text-green-300 border-green-700">
+                              🔐 Включена
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded border bg-gray-800 text-gray-400 border-gray-700">
+                              ❌ Выключена
+                            </span>
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-sm">
                           {sub ? (
                             <div className="flex items-center gap-2">
@@ -272,6 +320,17 @@ export default function Dashboard({ token, onLogout }: Props) {
                                 className="text-xs text-red-400 hover:text-red-300 transition-colors"
                               >
                                 Отменить
+                              </button>
+                            )}
+                            {twoFA?.two_fa_enabled && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDisable2FAModal(twoFA);
+                                }}
+                                className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+                              >
+                                Откл. 2FA
                               </button>
                             )}
                           </div>
@@ -359,6 +418,63 @@ export default function Dashboard({ token, onLogout }: Props) {
           </div>
         </div>
       )}
+
+      {/* === 2FA Disable Modal === */}
+      {disable2FAModal && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => !disabling2FA && setDisable2FAModal(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-800 rounded-2xl p-8 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold text-white mb-2">🔐 Отключить 2FA</h2>
+            <p className="text-gray-400 text-sm mb-6">
+              для <span className="text-white font-medium">{disable2FAModal.email}</span>
+            </p>
+
+            <div className="bg-yellow-900/20 border border-yellow-700 rounded-lg p-4 mb-6">
+              <p className="text-yellow-300 text-sm">
+                ⚠️ После отключения пользователь сможет войти только по паролю. Используйте эту функцию, если пользователь забыл код или потерял доступ к аутентификатору.
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Причина отключения <span className="text-red-400">*</span>
+              </label>
+              <textarea
+                value={disableReason}
+                onChange={(e) => setDisableReason(e.target.value)}
+                placeholder="Например: Пользователь потерял доступ к аутентификатору"
+                rows={3}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-yellow-600 focus:border-transparent transition"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setDisable2FAModal(null);
+                  setDisableReason('');
+                }}
+                disabled={disabling2FA}
+                className="flex-1 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white rounded-lg px-4 py-3 transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDisable2FA}
+                disabled={disabling2FA || !disableReason.trim()}
+                className="flex-1 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white font-semibold rounded-lg px-4 py-3 transition-colors"
+              >
+                {disabling2FA ? 'Отключение...' : 'Отключить 2FA'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -385,5 +501,6 @@ function MetricCard({
       <div className={`text-2xl font-bold ${accent}`}>{value}</div>
       {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
     </div>
+    
   );
 }
