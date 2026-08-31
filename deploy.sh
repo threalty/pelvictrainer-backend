@@ -51,11 +51,15 @@ echo "🐳 Пересборка backend..."
 docker compose build api
 docker compose up -d api
 
-# 4. Пересобираем frontend
-echo "⚛️ Пересборка админки..."
-cd admin-frontend
-npm install --silent
+echo "⚛️  Пересборка админки..."
+cd /opt/pelvictrainer/admin-frontend
 npm run build
+
+# === НОВОЕ: Пересборка контейнера admin ===
+echo "🔄 Пересборка контейнера admin..."
+cd /opt/pelvictrainer
+docker compose build admin
+docker compose up -d admin
 
 # 5. Health check
 echo "🔍 Health check..."
