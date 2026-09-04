@@ -95,7 +95,7 @@ func (s *Sender) SendMultiple(msg EmailMessage) error {
 		return nil
 	default:
 		// Для других портов пробуем сначала STARTTLS, потом SSL
-		log.Printf("📡 Подключение к нестандартному порту %s...", s.port)
+		log.Printf("📡 Подключение к нестандартному порту %s...", addr)
 		err := s.sendWithSTARTTLS(dialer, addr, msg.To, emailBody.String())
 		if err != nil {
 			err = s.sendWithSSL(dialer, addr, msg.To, emailBody.String())
@@ -275,6 +275,17 @@ func (s *Sender) SendSubscriptionActivated(email string, userName string, plan s
 	return s.SendWithTemplate([]string{email}, subject, TemplateSubscriptionActivated, map[string]string{
 		"UserName": userName,
 		"Plan":     plan,
+	})
+}
+
+// SendNewDeviceLogin отправляет уведомление о входе с нового устройства
+func (s *Sender) SendNewDeviceLogin(email string, userName string, ipAddress string, deviceInfo string, loginTime string) error {
+	subject := "🔐 Новый вход в ваш аккаунт PelvicTrainer"
+	return s.SendWithTemplate([]string{email}, subject, TemplateNewDeviceLogin, map[string]string{
+		"UserName":   userName,
+		"IPAddress":  ipAddress,
+		"DeviceInfo": deviceInfo,
+		"LoginTime":  loginTime,
 	})
 }
 

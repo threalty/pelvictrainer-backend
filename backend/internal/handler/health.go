@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -13,20 +14,54 @@ import (
 	"pelvictrainer/backend/internal/middleware"
 )
 
-// Глобальный пул соединений с БД (устанавливается из main.go через SetDBPool)
 var dbPool *pgxpool.Pool
 
-// SetDBPool устанавливает глобальный пул БД
 func SetDBPool(pool *pgxpool.Pool) {
 	dbPool = pool
 }
 
-// GetDBPool возвращает глобальный пул БД
-func GetDBPool() *pgxpool.Pool {
-	return dbPool
+func healthCheck(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "ok",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
 }
 
-// SetupRouter настраивает все роуты приложения
+func readinessCheck(db *pgxpool.Pool, redis *redis.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+
+		// Check DB
+		if err := db.Ping(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"db":     "error: " + err.Error(),
+			})
+			return
+		}
+
+		// Check Redis
+		if err := redis.Ping(ctx).Err(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "unhealthy",
+				"redis":  "error: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ready",
+			"db":     "ok",
+			"redis":  "ok",
+		})
+	}
+}
+
+func pingHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"message": "pong"})
+}
+
 func SetupRouter(
 	authHandler *AuthHandler,
 	jwtService *auth.JWTService,
@@ -66,7 +101,8 @@ func SetupRouter(
 		twoFactorAuth := v1.Group("/2fa")
 		twoFactorAuth.Use(middleware.RateLimitMiddleware(10, time.Minute))
 		{
-			twoFactorHandler := NewTwoAuthHandler(dbPool, jwtService)
+			// === НОВОЕ: Передаём emailSender в NewTwoAuthHandler ===
+			twoFactorHandler := NewTwoAuthHandler(dbPool, jwtService, emailSender)
 			twoFactorAuth.POST("/verify-login", twoFactorHandler.VerifyForLogin)
 			twoFactorAuth.POST("/verify-backup", twoFactorHandler.VerifyBackupCode)
 		}
@@ -108,7 +144,8 @@ func SetupRouter(
 			protected.POST("/broadcasts/:id/send", broadcastHandler.AdminSendBroadcast)
 
 			// 2FA (настройка - защищённые)
-			twoAuthHandler := NewTwoAuthHandler(dbPool, jwtService)
+			// === НОВОЕ: Передаём emailSender в NewTwoAuthHandler ===
+			twoAuthHandler := NewTwoAuthHandler(dbPool, jwtService, emailSender)
 			protected.GET("/2fa/status", twoAuthHandler.GetStatus)
 			protected.POST("/2fa/setup", twoAuthHandler.GenerateSetup)
 			protected.POST("/2fa/verify-setup", twoAuthHandler.VerifySetup)
@@ -152,51 +189,4 @@ func SetupRouter(
 	}
 
 	return router
-}
-
-func healthCheck(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "ok",
-		"service": "pelvictrainer-api",
-		"version": "0.1.0",
-		"time":    time.Now().UTC().Format(time.RFC3339),
-	})
-}
-
-func readinessCheck(pool *pgxpool.Pool, redisClient *redis.Client) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx := c.Request.Context()
-
-		if pool != nil {
-			if err := pool.Ping(ctx); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{
-					"status": "not_ready",
-					"error":  "PostgreSQL недоступен",
-				})
-				return
-			}
-		}
-
-		if redisClient != nil {
-			if err := redisClient.Ping(ctx).Err(); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{
-					"status": "not_ready",
-					"error":  "Redis недоступен",
-				})
-				return
-			}
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ready",
-			"time":   time.Now().UTC().Format(time.RFC3339),
-		})
-	}
-}
-
-func pingHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"message": "pong",
-		"time":    time.Now().UTC().Format(time.RFC3339),
-	})
 }

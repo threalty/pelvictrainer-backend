@@ -13,18 +13,26 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"pelvictrainer/backend/internal/auth"
+	"pelvictrainer/backend/internal/email"
 	"pelvictrainer/backend/internal/twoauth"
 )
 
 // TwoAuthHandler обработчики для двухфакторной аутентификации
 type TwoAuthHandler struct {
-	db         *pgxpool.Pool
-	jwtService *auth.JWTService
+	db             *pgxpool.Pool
+	jwtService     *auth.JWTService
+	emailSender    *email.Sender
+	deviceTracker  *DeviceTracker
 }
 
 // NewTwoAuthHandler создаёт обработчик 2FA
-func NewTwoAuthHandler(db *pgxpool.Pool, jwtService *auth.JWTService) *TwoAuthHandler {
-	return &TwoAuthHandler{db: db, jwtService: jwtService}
+func NewTwoAuthHandler(db *pgxpool.Pool, jwtService *auth.JWTService, emailSender *email.Sender) *TwoAuthHandler {
+	return &TwoAuthHandler{
+		db:            db,
+		jwtService:    jwtService,
+		emailSender:   emailSender,
+		deviceTracker: NewDeviceTracker(db, emailSender),
+	}
 }
 
 // SetupResponse ответ на запрос настройки 2FA
@@ -278,15 +286,18 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 	}
 
 	// Получаем данные пользователя включая роль
-	var email, name, role string
-	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name, &role)
+	var userEmail, name, role string
+	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&userEmail, &name, &role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
 		return
 	}
 
+	// === НОВОЕ: Проверяем новое устройство ===
+	h.deviceTracker.CheckAndNotifyNewDevice(ctx, req.UserID, userEmail, name, c.ClientIP(), c.Request.UserAgent())
+
 	// Генерируем access-токен с ролью
-	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email, role)
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, userEmail, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
 		return
@@ -300,7 +311,7 @@ func (h *TwoAuthHandler) VerifyForLogin(c *gin.Context) {
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user_id":       req.UserID,
-		"email":         email,
+		"email":         userEmail,
 		"name":          name,
 		"role":          role,
 		"authenticated": true,
@@ -363,15 +374,18 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 	}
 
 	// Получаем данные пользователя включая роль
-	var email, name, role string
-	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&email, &name, &role)
+	var userEmail, name, role string
+	err = h.db.QueryRow(ctx, `SELECT email, COALESCE(name, ''), COALESCE(role, 'user') FROM users WHERE id = $1`, req.UserID).Scan(&userEmail, &name, &role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Пользователь не найден"})
 		return
 	}
 
+	// === НОВОЕ: Проверяем новое устройство ===
+	h.deviceTracker.CheckAndNotifyNewDevice(ctx, req.UserID, userEmail, name, c.ClientIP(), c.Request.UserAgent())
+
 	// Генерируем токены с ролью
-	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, email, role)
+	accessToken, err := h.jwtService.GenerateAccessToken(req.UserID, userEmail, role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка генерации токена"})
 		return
@@ -383,7 +397,7 @@ func (h *TwoAuthHandler) VerifyBackupCode(c *gin.Context) {
 		"access_token":           accessToken,
 		"refresh_token":          refreshToken,
 		"user_id":                req.UserID,
-		"email":                  email,
+		"email":                  userEmail,
 		"name":                   name,
 		"role":                   role,
 		"remaining_backup_codes": len(remainingCodes),

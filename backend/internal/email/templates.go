@@ -179,3 +179,91 @@ const TemplateSubscriptionActivated = `<!DOCTYPE html>
     </table>
 </body>
 </html>`
+
+// TemplateNewDeviceLogin шаблон уведомления о входе с нового устройства
+const TemplateNewDeviceLogin = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Новый вход в аккаунт</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f4f4f7;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f4f7; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                    <!-- Шапка -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #2E7D32 0%, #1B5E20 100%); padding: 40px 30px; text-align: center;">
+                            <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 700;">🔐 Новый вход</h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Содержимое -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <h2 style="color: #1a1a1a; margin: 0 0 20px 0; font-size: 24px; font-weight: 600;">
+                                Здравствуйте, {{.UserName}}!
+                            </h2>
+                            
+                            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                                Мы зафиксировали вход в ваш аккаунт PelvicTrainer с нового устройства.
+                            </p>
+                            
+                            <!-- Детали входа -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8f8f8; border-radius: 8px; margin: 25px 0; padding: 20px;">
+                                <tr>
+                                    <td>
+                                        <p style="color: #666666; font-size: 13px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            📍 IP-адрес
+                                        </p>
+                                        <p style="color: #1a1a1a; font-size: 15px; font-family: monospace; margin: 0 0 15px 0; font-weight: 600;">
+                                            {{.IPAddress}}
+                                        </p>
+                                        
+                                        <p style="color: #666666; font-size: 13px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            🌐 Устройство
+                                        </p>
+                                        <p style="color: #1a1a1a; font-size: 15px; margin: 0 0 15px 0; font-weight: 600;">
+                                            {{.DeviceInfo}}
+                                        </p>
+                                        
+                                        <p style="color: #666666; font-size: 13px; margin: 0 0 5px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            🕐 Время
+                                        </p>
+                                        <p style="color: #1a1a1a; font-size: 15px; margin: 0; font-weight: 600;">
+                                            {{.LoginTime}}
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <p style="color: #4a4a4a; font-size: 16px; line-height: 1.6; margin: 0 0 20px 0;">
+                                Если это были вы — можете игнорировать это письмо. Ваш аккаунт в безопасности.
+                            </p>
+                            
+                            <!-- Предупреждение -->
+                            <div style="background-color: #FFF3E0; border-left: 4px solid #FF9800; padding: 15px 20px; border-radius: 4px; margin: 25px 0;">
+                                <p style="color: #E65100; font-size: 14px; line-height: 1.6; margin: 0; font-weight: 500;">
+                                    ⚠️ <strong>Не узнаёте это устройство?</strong><br>
+                                    Немедленно смените пароль и включите двухфакторную аутентификацию в настройках аккаунта.
+                                </p>
+                            </div>
+                        </td>
+                    </tr>
+                    
+                    <!-- Подвал -->
+                    <tr>
+                        <td style="background-color: #f8f8f8; padding: 25px 30px; text-align: center; border-top: 1px solid #eeeeee;">
+                            <p style="color: #999999; font-size: 13px; margin: 0; line-height: 1.5;">
+                                © 2026 PelvicTrainer. Все права защищены.<br>
+                                Это автоматическое уведомление о безопасности.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`
