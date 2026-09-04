@@ -1,23 +1,23 @@
 package handler
 
 import (
-"context"
-"crypto/sha256"
-"encoding/hex"
-"fmt"
-"log"
-"net/http"
-"strings"
-"time"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
 
-"github.com/gin-gonic/gin"
-"github.com/jackc/pgx/v5"
-"github.com/jackc/pgx/v5/pgxpool"
-"github.com/redis/go-redis/v9"
-"golang.org/x/crypto/bcrypt"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 
-"pelvictrainer/backend/internal/auth"
-"pelvictrainer/backend/internal/email"
+	"pelvictrainer/backend/internal/auth"
+	"pelvictrainer/backend/internal/email"
 )
 
 // AuthHandler обработчик аутентификации
@@ -447,48 +447,4 @@ func GetUserIDFromString(s string) (int, bool) {
 		id = id*10 + int(c-'0')
 	}
 	return id, true
-}
-// === НОВЫЕ ФУНКЦИИ ДЛЯ ОТСЛЕЖИВАНИЯ НОВЫХ УСТРОЙСТВ ===
-
-func (h *AuthHandler) hashUserAgent(userAgent string) string {
-hash := sha256.Sum256([]byte(userAgent))
-return hex.EncodeToString(hash[:])
-}
-
-func (h *AuthHandler) parseDeviceInfo(userAgent string) string {
-ua := strings.ToLower(userAgent)
-
-var device string
-switch {
-case strings.Contains(ua, "android"):
-device = "Android"
-case strings.Contains(ua, "iphone"), strings.Contains(ua, "ipad"):
-device = "iOS"
-case strings.Contains(ua, "windows"):
-device = "Windows"
-case strings.Contains(ua, "macintosh"), strings.Contains(ua, "mac os"):
-device = "macOS"
-case strings.Contains(ua, "linux"):
-device = "Linux"
-default:
-device = "Unknown Device"
-}
-
-var browser string
-switch {
-case strings.Contains(ua, "pelvictrainer") || strings.Contains(ua, "okhttp"):
-browser = "PelvicTrainer App"
-case strings.Contains(ua, "chrome") && !strings.Contains(ua, "edge"):
-browser = "Chrome"
-case strings.Contains(ua, "firefox"):
-browser = "Firefox"
-case strings.Contains(ua, "safari") && !strings.Contains(ua, "chrome"):
-browser = "Safari"
-case strings.Contains(ua, "edge"):
-browser = "Edge"
-default:
-browser = "Browser"
-}
-
-return fmt.Sprintf("%s on %s", browser, device)
 }
